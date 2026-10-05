@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Química Latinoamericana | Mantenimiento predictivo molino coloidal</title>
+<link rel="icon" href="/static/img/logo-qla.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Archivo+Narrow:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/estilo.css">
+</head>
+<body>
+
+<header class="cabecera">
+  <div class="marca">
+    <img src="/static/img/logo-qla.png" alt="Química Latinoamericana">
+    <div class="marca-textos">
+      <strong id="nombre-equipo">Molino coloidal MC-01</strong>
+      <span id="nombre-planta">Planta de emulsión asfáltica</span>
+    </div>
+  </div>
+  <div class="cabecera-estado">
+    <div class="reloj" id="reloj">--:--<small>Sin datos</small></div>
+    <span class="chip" id="chip-operacion"><span class="punto"></span>Conectando…</span>
+    <span class="chip" id="chip-modelos">Modelos: cargando</span>
+    <div class="operador">
+      <label for="operador">Operador</label>
+      <input id="operador" type="text" maxlength="60" autocomplete="name">
+    </div>
+  </div>
+</header>
+
+<nav class="nav" role="tablist" aria-label="Secciones">
+  <button role="tab" data-vista="proceso" aria-selected="true">Proceso</button>
+  <button role="tab" data-vista="prediccion" aria-selected="false">Predicción <span class="insignia" id="insignia-riesgo" hidden>0</span></button>
+  <button role="tab" data-vista="tendencias" aria-selected="false">Tendencias</button>
+  <button role="tab" data-vista="alarmas" aria-selected="false">Alarmas <span class="insignia" id="insignia-alarmas" hidden>0</span></button>
+  <button role="tab" data-vista="salud" aria-selected="false">Salud del equipo</button>
+  <button role="tab" data-vista="mantenimiento" aria-selected="false">Mantenimiento</button>
+  <button role="tab" data-vista="simulacion" aria-selected="false">Simulación de fallas</button>
+  <button role="tab" data-vista="registro" aria-selected="false">Registro y etiquetas</button>
+</nav>
+
+<div class="control">
+  <div class="grupo">
+    <button class="btn btn-primario" id="play">Pausar</button>
+    <label for="velocidad">Velocidad</label>
+    <select id="velocidad">
+      <option value="1">1 min por segundo</option>
+      <option value="15">15 min por segundo</option>
+      <option value="60" selected>1 hora por segundo</option>
+      <option value="240">4 horas por segundo</option>
+      <option value="480">8 horas por segundo</option>
+    </select>
+  </div>
+  <div class="grupo">
+    <label for="funcionamiento">Funcionamiento</label>
+    <select id="funcionamiento">
+      <option value="">Calendario real (2026)</option>
+      <option value="produccion_convencional">Producción convencional</option>
+      <option value="produccion_plastomerico">Producción plastomérico</option>
+      <option value="limpieza">Limpieza de línea</option>
+      <option value="preparacion">Preparación</option>
+      <option value="espera">En espera</option>
+      <option value="detenida">Planta detenida</option>
+    </select>
+  </div>
+  <div class="grupo">
+    <label for="ir-a">Ir a</label>
+    <select id="ir-a"></select>
+  </div>
+  <div class="grupo">
+    <label for="escenario-rapido">Inyectar falla</label>
+    <select id="escenario-rapido"></select>
+  </div>
+  <span class="nota-control" id="nota-control"></span>
+</div>
+
+<main>
+  <!-- ============================================================ PROCESO -->
+  <section data-panel="proceso">
+    <div class="anunciador normal" id="anunciador" aria-live="polite">
+      <div>
+        <p class="titulo" id="an-titulo">Esperando datos</p>
+        <p class="accion" id="an-accion"></p>
+        <p class="origen" id="an-origen"></p>
+      </div>
+      <div class="lado">
+        <span id="an-tiempo"></span>
+        <div class="botones">
+          <button class="btn btn-claro" id="an-reconocer" hidden>Reconocer alarma</button>
+          <button class="btn" id="an-detalle" hidden>Ver alarmas</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tablero">
+      <div class="columna-gauges" id="gauges-izq"></div>
+      <div class="esquema-marco">
+        <div class="esquema-cab">Planta de emulsión / Línea de molienda / <span id="modo-operacion"></span></div>
+        <svg id="esquema" viewBox="0 0 940 370" role="img" aria-label="Esquema del proceso del molino coloidal">
+          <defs>
+            <linearGradient id="g-metal" x1="0" x2="1"><stop offset="0" stop-color="#3B4558"/><stop offset=".5" stop-color="#55627A"/><stop offset="1" stop-color="#2E3646"/></linearGradient>
+            <linearGradient id="g-betun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a2a12"/><stop offset="1" stop-color="#1b1309"/></linearGradient>
+            <linearGradient id="g-sol" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1e4f7a"/><stop offset="1" stop-color="#123150"/></linearGradient>
+            <linearGradient id="g-emu" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b4a25"/><stop offset="1" stop-color="#3e2a14"/></linearGradient>
+            <clipPath id="clip-tk101"><rect x="30" y="45" width="100" height="150" rx="10"/></clipPath>
+            <clipPath id="clip-tk201"><rect x="30" y="232" width="100" height="118" rx="10"/></clipPath>
+            <clipPath id="clip-tk301"><rect x="770" y="125" width="110" height="170" rx="10"/></clipPath>
+          </defs>
+
+          <!-- tuberías (fondo) y flujo animado -->
+          <path class="tuberia" stroke="var(--betun)" d="M130 150 H175 M235 150 H265 M315 150 H338 M382 150 H398 M422 150 H452 V80 H485 V95"/>
+          <path class="tuberia" stroke="var(--solucion)" d="M130 300 H175 M235 300 H425 V62 H500 V95"/>
+          <path class="tuberia" stroke="var(--agua)" d="M410 30 V138"/>
+          <path class="tuberia" stroke="var(--emulsion)" d="M525 182 H600 M680 182 H770"/>
+          <path class="tuberia" stroke="var(--emulsion)" d="M540 182 V258 H770"/>
+          <path class="flujo" id="flujo-betun" stroke="var(--betun)" d="M130 150 H452 V80 H485 V95"/>
+          <path class="flujo" id="flujo-sol" stroke="var(--solucion)" d="M130 300 H425 V62 H500 V95"/>
+          <path class="flujo" id="flujo-agua" stroke="var(--agua)" d="M410 30 V150 H452 V80 H485 V95"/>
+          <path class="flujo" id="flujo-emu-int" stroke="var(--emulsion)" d="M525 182 H770"/>
+          <path class="flujo" id="flujo-emu-bypass" stroke="var(--emulsion)" d="M525 182 H540 V258 H770"/>
+          <text class="tag" x="655" y="272" text-anchor="middle">línea directa (convencional)</text>
+          <text class="etq" id="t-producto" x="925" y="22" text-anchor="end" style="fill: var(--amarillo)">--</text>
+          <text class="tag" x="416" y="26">Agua + aire (limpieza)</text>
+
+          <!-- TK-101 betún -->
+          <g class="equipo-g" id="g-TK-101">
+            <rect class="cuerpo" x="30" y="45" width="100" height="150" rx="10"/>
+            <rect id="lvl-betun" x="30" y="120" width="100" height="75" fill="url(#g-betun)" clip-path="url(#clip-tk101)"/>
+            <ellipse cx="80" cy="45" rx="50" ry="8" fill="url(#g-metal)" stroke="#5B6880"/>
+            <text class="etq" x="80" y="30" text-anchor="middle">TK-101 Betún</text>
+            <text class="val" id="t-TEM_son_betum_in" x="80" y="80" text-anchor="middle">--</text>
+            <text class="tag" x="80" y="95" text-anchor="middle">temperatura</text>
+            <text class="val" id="t-AMP_eco_betum_dep" x="80" y="118" text-anchor="middle">--</text>
+            <text class="tag" x="80" y="131" text-anchor="middle">eco radar</text>
+            <text class="val" id="t-VOLT_son_betum_in" x="80" y="154" text-anchor="middle">--</text>
+            <text class="tag" x="80" y="167" text-anchor="middle">alim. Pt100</text>
+            <text class="val" id="t-POR_niv_betum_dep" x="80" y="186" text-anchor="middle">--</text>
+          </g>
+          <!-- FT-101 -->
+          <g class="equipo-g" id="g-FT-101">
+            <rect class="cuerpo" x="175" y="135" width="60" height="30" rx="4"/>
+            <text class="etq" x="205" y="154" text-anchor="middle">FT</text>
+            <text class="tag" x="205" y="128" text-anchor="middle">FT-101 Coriolis</text>
+            <text class="val" id="t-FRE_cau_betum_in" x="205" y="182" text-anchor="middle">--</text>
+            <text class="val" id="t-AMP_cau_betum_in" x="205" y="197" text-anchor="middle">--</text>
+          </g>
+          <!-- F-101 filtro + P-101 bomba -->
+          <g class="equipo-g" id="g-F-101">
+            <rect class="cuerpo" x="265" y="125" width="50" height="50" rx="4"/>
+            <path d="M270 170 L310 130 M270 155 L295 130 M285 170 L310 145" stroke="#8B97AD" stroke-width="1.2"/>
+            <text class="tag" x="290" y="118" text-anchor="middle">F-101 Filtro</text>
+            <text class="val" id="t-PRE_dif_filtro_bar" x="290" y="192" text-anchor="middle">--</text>
+            <text class="tag" x="290" y="205" text-anchor="middle">ΔP filtro</text>
+            <circle class="cuerpo" cx="360" cy="150" r="22"/>
+            <path d="M350 138 L374 150 L350 162 Z" fill="#8B97AD"/>
+            <text class="tag" x="360" y="120" text-anchor="middle">P-101 Bomba</text>
+            <text class="val" id="t-CAU_bomba_lpm" x="360" y="192" text-anchor="middle">--</text>
+            <text class="tag" x="360" y="205" text-anchor="middle">caudal</text>
+          </g>
+          <!-- V-101 válvula 3 vías -->
+          <g class="equipo-g" id="g-V-101">
+            <path class="cuerpo" d="M398 140 L410 150 L398 160 Z M422 140 L410 150 L422 160 Z M400 138 L410 150 L420 138 Z"/>
+            <text class="tag" x="410" y="178" text-anchor="middle">V-101</text>
+            <text class="val" id="t-POS_valvula_3vias" x="410" y="193" text-anchor="middle">--</text>
+            <text class="val" id="t-VAL_aire_linea" x="410" y="208" text-anchor="middle" style="font-size:10px">--</text>
+          </g>
+          <!-- MC-01 molino coloidal -->
+          <g class="equipo-g" id="g-MC-01">
+            <path class="cuerpo" d="M462 95 H518 L506 125 H474 Z"/>
+            <rect class="cuerpo" x="455" y="125" width="70" height="85" rx="6" fill="url(#g-metal)"/>
+            <g class="rotor" id="rotor" style="transform-origin: 490px 168px">
+              <circle cx="490" cy="168" r="22" fill="#1B2130" stroke="#8B97AD" stroke-width="1.5"/>
+              <path d="M490 146 V190 M468 168 H512 M474 152 L506 184 M506 152 L474 184" stroke="#FEA30B" stroke-width="2"/>
+            </g>
+            <rect x="486" y="210" width="8" height="14" fill="#8B97AD"/>
+            <rect class="cuerpo" x="450" y="224" width="80" height="70" rx="6"/>
+            <path d="M458 236 H522 M458 248 H522 M458 260 H522 M458 272 H522 M458 284 H522" stroke="#5B6880" stroke-width="2"/>
+            <rect x="445" y="294" width="90" height="8" rx="2" fill="#3A4456"/>
+            <text class="etq" x="490" y="322" text-anchor="middle">MC-01 Molino coloidal</text>
+            <text class="tag" x="490" y="336" text-anchor="middle">100 hp, 2.900 RPM</text>
+            <text class="val" id="t-TEM_emulsion_molino_out" x="540" y="150">--</text>
+            <text class="tag" x="540" y="163">T° salida</text>
+            <text class="val" id="t-RPM_motor_molino" x="545" y="232">--</text>
+            <text class="val" id="t-AMP_vfd_motor_molino" x="545" y="249">--</text>
+            <text class="val" id="t-TOR_vfd_motor_molino" x="545" y="266">--</text>
+            <text class="val" id="t-VIB_vel_motor_molino" x="545" y="283">--</text>
+          </g>
+          <!-- E-301 intercambiador -->
+          <g class="equipo-g" id="g-E-301" style="transition: opacity .3s">
+            <rect class="cuerpo" x="600" y="160" width="80" height="44" rx="22"/>
+            <path d="M612 182 l8 -12 l8 24 l8 -24 l8 24 l8 -24 l8 24 l8 -12" fill="none" stroke="#F0883E" stroke-width="1.6"/>
+            <text class="tag" x="640" y="150" text-anchor="middle">E-301 Intercambiador</text>
+            <text class="val" id="t-PRE_intercambiador_bar" x="640" y="222" text-anchor="middle">--</text>
+            <text class="tag" x="640" y="235" text-anchor="middle" id="t-uso-intercambiador">presión</text>
+          </g>
+          <!-- TK-301 emulsión -->
+          <g class="equipo-g" id="g-TK-301">
+            <rect class="cuerpo" x="770" y="125" width="110" height="170" rx="10"/>
+            <rect id="lvl-emu" x="770" y="210" width="110" height="85" fill="url(#g-emu)" clip-path="url(#clip-tk301)"/>
+            <ellipse cx="825" cy="125" rx="55" ry="8" fill="url(#g-metal)" stroke="#5B6880"/>
+            <text class="etq" x="825" y="108" text-anchor="middle">TK-301 Emulsión</text>
+            <text class="val" id="t-TEM_son_emulsion_out" x="825" y="165" text-anchor="middle">--</text>
+            <text class="tag" x="825" y="179" text-anchor="middle">temperatura</text>
+            <text class="val" id="t-AMP_eco_emulsion_dep" x="825" y="205" text-anchor="middle">--</text>
+            <text class="tag" x="825" y="219" text-anchor="middle">eco radar</text>
+            <text class="val" id="t-nivel-emu" x="825" y="282" text-anchor="middle">--</text>
+          </g>
+          <!-- TK-201 solución -->
+          <g class="equipo-g" id="g-TK-201">
+            <rect class="cuerpo" x="30" y="232" width="100" height="118" rx="10"/>
+            <rect id="lvl-sol" x="30" y="290" width="100" height="60" fill="url(#g-sol)" clip-path="url(#clip-tk201)"/>
+            <ellipse cx="80" cy="232" rx="50" ry="8" fill="url(#g-metal)" stroke="#5B6880"/>
+            <text class="etq" x="80" y="217" text-anchor="middle">TK-201 Solución</text>
+            <text class="val" id="t-TEM_son_solucion_in" x="80" y="264" text-anchor="middle">--</text>
+            <text class="tag" x="80" y="277" text-anchor="middle">temperatura</text>
+            <text class="val" id="t-AMP_eco_solucion_dep" x="80" y="300" text-anchor="middle">--</text>
+            <text class="tag" x="80" y="313" text-anchor="middle">eco radar</text>
+            <text class="val" id="t-POR_niv_solucion_dep" x="80" y="340" text-anchor="middle">--</text>
+          </g>
+          <!-- FT-201 -->
+          <g class="equipo-g" id="g-FT-201">
+            <rect class="cuerpo" x="175" y="285" width="60" height="30" rx="4"/>
+            <text class="etq" x="205" y="304" text-anchor="middle">FT</text>
+            <text class="tag" x="205" y="278" text-anchor="middle">FT-201 Coriolis</text>
+            <text class="val" id="t-FRE_cau_solucion_in" x="205" y="332" text-anchor="middle">--</text>
+            <text class="val" id="t-AMP_cau_solucion_in" x="205" y="347" text-anchor="middle">--</text>
+          </g>
+        </svg>
+        <div class="leyenda-esquema">
+          <span><i style="background: var(--betun)"></i>Betún</span>
+          <span><i style="background: var(--solucion)"></i>Solución jabonosa</span>
+          <span><i style="background: var(--agua)"></i>Agua de limpieza</span>
+          <span><i style="background: var(--emulsion)"></i>Emulsión</span>
+          <span><b style="color: var(--alerta)">Rojo</b>: fuera de banda</span>
+          <span><b style="color: var(--desconocida)">Morado</b>: señalado por el autoencoder</span>
+        </div>
+      </div>
+      <div class="columna-gauges" id="gauges-der"></div>
+    </div>
+
+    <div class="fila-graficos" id="minis"></div>
+
+    <div class="fila-inferior">
+      <div class="tarjeta">
+        <div class="tarjeta-cab"><h2>Diagnóstico actual</h2></div>
+        <div class="modelo-bloque">
+          <span id="id-nombre">Identificación de fallas</span>
+          <div class="modelo-valor" id="id-valor"><span class="marca-estado"></span>Sin datos</div>
+        </div>
+        <div class="modelo-bloque">
+          <span>Autoencoder (anomalías y degradación)</span>
+          <div class="modelo-valor" id="ae-valor">Sin datos</div>
+          <div class="barra" aria-hidden="true"><div class="relleno" id="ae-relleno" style="width:0"></div><div class="umbral" id="ae-umbral"></div></div>
+          <div class="escala"><span>0,01</span><span>umbral</span><span>100</span></div>
+          <ul class="aportes" id="ae-aportes"></ul>
+        </div>
+        <div class="coherencia" id="coherencia">Sin evaluación.</div>
+      </div>
+      <div class="tarjeta">
+        <div class="tarjeta-cab"><h2>Alarmas activas</h2><small id="persistencia"></small></div>
+        <div id="alarmas-activas"></div>
+      </div>
+      <div class="tarjeta">
+        <div class="tarjeta-cab"><h2>Riesgo de falla</h2><small id="pred-hora"></small></div>
+        <ul class="riesgo-lista" id="riesgo-resumen"></ul>
+        <button class="btn btn-chico" id="ver-prediccion" style="margin-top: 10px">Ver predicción completa</button>
+      </div>
+      <div class="tarjeta">
+        <div class="tarjeta-cab"><h2>Indicadores del día</h2><small id="kpi-minutos"></small></div>
+        <div class="kpis">
+          <div class="kpi" id="kpi-relacion"><span>Relación betún / solución</span><strong>--</strong><em></em></div>
+          <div class="kpi" id="kpi-produccion"><span>Producción</span><strong>--</strong><em>Emulsión del día</em></div>
+          <div class="kpi" id="kpi-normal"><span>Marcha sin anomalía</span><strong>--</strong><em>Del tiempo en marcha</em></div>
+          <div class="kpi" id="kpi-energia"><span>Energía del motor</span><strong>--</strong><em>Estimada (380 V)</em></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ PREDICCIÓN -->
+  <section data-panel="prediccion" hidden>
+    <div class="tarjeta">
+      <div class="tarjeta-cab"><h2>Semáforo de riesgo por equipo</h2><small id="pred-hora-2"></small></div>
+      <div class="tabla-scroll"><table class="semaforo" id="tabla-semaforo"></table></div>
+      <p class="nota-control" style="margin-top: 10px">Fallas frecuentes: probabilidad del modelo LightGBM contra su umbral de alerta. Fallas raras: días estimados hasta cruzar el límite físico, proyectando la tendencia de los últimos 7 días. Registrar una intervención reinicia el desgaste acumulado del equipo.</p>
+    </div>
+    <div class="tarjeta" style="margin-top: 16px">
+      <div class="tarjeta-cab">
+        <h2>Evolución del riesgo</h2>
+        <div class="selector-tendencia">
+          <label for="horizonte-graf">Horizonte</label>
+          <select id="horizonte-graf"></select>
+          <small>Línea punteada: umbral de alerta de cada falla</small>
+        </div>
+      </div>
+      <canvas id="graf-riesgo" height="260" aria-label="Probabilidad de falla en el tiempo"></canvas>
+      <div class="leyenda" id="leyenda-riesgo"></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ TENDENCIAS -->
+  <section data-panel="tendencias" hidden>
+    <div class="tarjeta">
+      <div class="tarjeta-cab">
+        <h2>Tendencia por sensor</h2>
+        <div class="selector-tendencia"><label for="sensor-tendencia">Sensor</label><select id="sensor-tendencia"></select><small>Últimos 2.000 minutos recibidos</small></div>
+      </div>
+      <canvas id="tendencia-grande" height="300" aria-label="Tendencia del sensor seleccionado"></canvas>
+    </div>
+    <div class="tarjeta" style="margin-top: 16px">
+      <div class="tarjeta-cab"><h2>Lecturas actuales</h2><small>en rojo, fuera de la banda normal del modo actual</small></div>
+      <div class="tabla-scroll"><table class="tabla" id="tabla-lecturas"></table></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ ALARMAS -->
+  <section data-panel="alarmas" hidden>
+    <div class="fila-3">
+      <div class="tarjeta"><div class="tarjeta-cab"><h2>Activas</h2></div><div id="alarmas-activas-2"></div></div>
+      <div class="tarjeta span-2">
+        <div class="tarjeta-cab"><h2>Historial</h2><small>últimas 200</small></div>
+        <div class="tabla-scroll"><table class="tabla" id="tabla-alarmas"></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ SALUD -->
+  <section data-panel="salud" hidden>
+    <div class="tarjeta">
+      <div class="tarjeta-cab"><h2>Índice de salud del molino</h2><small>Error medio diario del autoencoder con el molino en marcha; línea punteada: umbral de anomalía</small></div>
+      <canvas id="salud-grande" height="280" aria-label="Error medio diario"></canvas>
+      <p class="nota-control">Al saltar a una fecha se precalculan los 45 días previos. Una subida sostenida indica degradación; después de una intervención el índice debería bajar.</p>
+    </div>
+    <div class="tarjeta" style="margin-top: 16px"><div class="tabla-scroll"><table class="tabla" id="tabla-salud"></table></div></div>
+  </section>
+
+  <!-- ============================================================ MANTENIMIENTO -->
+  <section data-panel="mantenimiento" hidden>
+    <div class="fila-2">
+      <div class="tarjeta">
+        <div class="tarjeta-cab"><h2>Estado por equipo</h2><small id="mant-tiempo"></small></div>
+        <div class="tabla-scroll"><table class="tabla" id="tabla-equipos"></table></div>
+      </div>
+      <div class="tarjeta">
+        <div class="tarjeta-cab"><h2>Indicadores de gestión</h2></div>
+        <div class="kpis">
+          <div class="kpi" id="kpi-planificado"><span>Mantenimiento planificado</span><strong>--</strong><em>Preventivas sobre el total</em></div>
+          <div class="kpi" id="kpi-intervenciones"><span>Intervenciones</span><strong>--</strong><em>Registradas hasta hoy</em></div>
+        </div>
+        <h3 style="margin: 16px 0 8px">Registrar intervención</h3>
+        <form class="form-linea" id="form-mant">
+          <label>Equipo<select id="m-equipo"></select></label>
+          <label>Tipo<select id="m-tipo"><option>Preventiva</option><option>Correctiva</option></select></label>
+          <label style="flex: 1">Descripción<input id="m-desc" type="text" maxlength="300" placeholder="Opcional"></label>
+          <button class="btn btn-primario" type="submit">Registrar</button>
+        </form>
+        <p class="mensaje" id="m-mensaje" aria-live="polite"></p>
+      </div>
+    </div>
+    <div class="tarjeta" style="margin-top: 16px">
+      <div class="tarjeta-cab"><h2>Bitácora</h2><small>últimas 60 intervenciones hasta la fecha simulada</small></div>
+      <div class="tabla-scroll"><table class="tabla" id="tabla-bitacora"></table></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ SIMULACIÓN -->
+  <section data-panel="simulacion" hidden>
+    <div class="tarjeta">
+      <div class="tarjeta-cab"><h2>Inyectar una falla sobre la operación real</h2><small>Los efectos se aplican encima de los datos reproducidos</small></div>
+      <p class="nota-control">Las fallas graduales se desarrollan durante días: usa una velocidad alta y observa en la pestaña Predicción cuándo sube el riesgo, antes de que la falla aparezca. Registrar la intervención del equipo en Mantenimiento corrige la falla simulada.</p>
+      <div id="escenarios" style="margin-top: 10px"></div>
+    </div>
+    <div class="tarjeta editor" style="margin-top: 16px">
+      <div class="editor-grid">
+        <form id="form-falla" autocomplete="off">
+          <h2 id="editor-titulo">Nueva falla</h2>
+          <label class="bloque" for="f-nombre">Nombre</label>
+          <input type="text" id="f-nombre" maxlength="60" required placeholder="Ej.: Válvula de 3 vías trabada">
+          <label class="bloque" for="f-descripcion">Descripción (opcional)</label>
+          <textarea id="f-descripcion" maxlength="400"></textarea>
+          <label class="bloque">Cómo aparece</label>
+          <div class="fila-evol">
+            <label><input type="radio" name="f-evol" value="inmediata" checked> De golpe</label>
+            <label><input type="radio" name="f-evol" value="gradual"> De forma gradual en</label>
+            <input type="number" id="f-minutos" min="1" max="20160" value="1440" aria-label="Minutos de desarrollo"> minutos
+          </div>
+          <label class="bloque">Efectos sobre los sensores</label>
+          <table class="efectos">
+            <thead><tr><th style="width:46%">Sensor</th><th style="width:24%">Cambio</th><th style="width:18%">Valor</th><th></th></tr></thead>
+            <tbody id="f-efectos"></tbody>
+          </table>
+          <div class="acciones-editor">
+            <button type="button" class="btn" id="f-agregar">Agregar sensor</button>
+            <button type="button" class="btn" id="f-probar">Probar sin guardar</button>
+            <button type="submit" class="btn btn-primario">Guardar falla</button>
+            <button type="button" class="btn" id="f-limpiar">Limpiar</button>
+          </div>
+          <p class="mensaje" id="f-mensaje" aria-live="polite"></p>
+        </form>
+        <div>
+          <h2 style="margin-bottom: 8px">Mis fallas</h2>
+          <ul class="lista-mias" id="lista-mias"></ul>
+          <p class="vacio" id="lista-mias-vacia">Aún no hay fallas personalizadas.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ REGISTRO -->
+  <section data-panel="registro" hidden>
+    <div class="tarjeta">
+      <div class="tarjeta-cab"><h2>Etiquetas del operador</h2><a class="btn btn-primario" href="/api/etiquetas.csv" download>Descargar CSV para reentrenar</a></div>
+      <p class="nota-control">Cada respuesta a "¿El diagnóstico fue correcto?" queda guardada con las lecturas del momento en que empezó la alarma.</p>
+      <div class="tabla-scroll"><table class="tabla" id="tabla-etiquetas"></table></div>
+    </div>
+  </section>
+</main>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
