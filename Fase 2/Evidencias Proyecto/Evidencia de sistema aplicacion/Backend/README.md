@@ -1,10 +1,10 @@
 # Backend – API de Mantenimiento Predictivo QLA
 
-API REST en **FastAPI** que conecta la base de datos de Supabase (esquema `mantpred`) con la web del sistema.
-Incluye inicio de sesión con 4 niveles de acceso y los datos que necesita el dashboard.
+API REST en **FastAPI** que conecta la base de datos de Supabase (esquema `mantpred`) con la web del sistema,
+y la **web** (login y dashboard) que se sirve desde la misma API. Incluye inicio de sesión con 4 niveles de acceso.
 
 Responsable: Nicolás (Ingeniería de datos y backend)
-Versión: 0.1.0 – octubre 2026
+Versión: 0.2.0 – octubre 2026 (0.1.0 API; 0.2.0 agrega la web)
 
 ## Estructura
 
@@ -19,6 +19,12 @@ Backend/
 │       ├── auth.py      # login, /me, cambio de contraseña
 │       ├── usuarios.py  # gestión de usuarios y auditoría (solo administrador)
 │       └── planta.py    # sensores, lecturas, estado, alarmas, predicciones, mantenimientos
+├── web/                 # login y dashboard (HTML, CSS y JavaScript, sin instalación extra)
+│   ├── login.html, index.html
+│   ├── css/app.css
+│   ├── js/api.js, js/login.js, js/app.js
+│   ├── js/vendor/echarts.min.js   # gráficos (Apache ECharts 5.5.1, licencia Apache 2.0)
+│   └── img/                       # logo de QLA
 ├── requirements.txt
 ├── .env.example         # plantilla de configuración (copiar como .env)
 └── .gitignore           # evita subir .env
@@ -34,11 +40,27 @@ notepad .env          # completar DATABASE_URL y JWT_SECRET
 python -m uvicorn app.main:app --reload
 ```
 
-Abrir **http://127.0.0.1:8000/docs** para ver y probar todos los endpoints.
+- **Web del sistema:** http://127.0.0.1:8000
+- **Documentación de la API:** http://127.0.0.1:8000/docs
 
 - `DATABASE_URL`: la misma cadena *Session pooler* de `Base de Datos/.env`.
 - `JWT_SECRET`: clave aleatoria para firmar las sesiones. Generarla con
   `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+
+## La web
+
+| Pestaña | Qué muestra | Quién la ve |
+| --- | --- | --- |
+| Panel | Estado del molino, sensores fuera de rango, alarmas, operación de las últimas 24 h, predicciones y el panel de instrumentos agrupado por equipo según el recorrido del proceso | Todos |
+| Tendencias | Hasta 6 sensores en gráficos con eje de tiempo común (24 h a 14 días), su rango normal y la franja de estados del molino | Todos |
+| Alarmas | Alarmas activas o todas; botón para reconocer con comentario | Todos; reconocer desde operador |
+| Mantenimiento | Historial; formulario para registrar intervenciones | Todos; registrar desde supervisor |
+| Usuarios | Crear usuarios, cambiar rol, activar o desactivar, asignar contraseña temporal y registro de accesos | Administrador |
+
+- En el primer ingreso (o tras una contraseña temporal) la web pide crear una contraseña nueva.
+- El selector **Datos simulados / Datos reales** cambia la fuente de todas las vistas.
+- El panel se actualiza cada minuto.
+- La sesión se guarda solo en la pestaña del navegador (se cierra al cerrar la pestaña).
 
 ## Roles
 
@@ -92,6 +114,14 @@ Creados por `Base de Datos/bd_mantenimiento_predictivo_v2.sql` con la clave inic
 **Se eliminan antes de la entrega final.**
 
 ## Pruebas realizadas (11-10-2026, PostgreSQL 16 local con el mismo esquema)
+
+Web (navegador automatizado, escritorio y celular):
+- Login con clave incorrecta y correcta; primer ingreso con cambio de contraseña y validación de que coincidan.
+- Operador: no ve Usuarios ni el formulario de mantenimiento; reconoce una alarma desde el diálogo.
+- Supervisor: registra un mantenimiento. Visualizador: no ve el botón para reconocer alarmas.
+- Cerrar sesión vuelve al login. Sin errores de JavaScript.
+
+API:
 
 - Login correcto, clave incorrecta, correo inexistente, usuario inactivo, token alterado y token expirado.
 - Cambio de contraseña obligatorio, validación de clave débil y de clave actual incorrecta.

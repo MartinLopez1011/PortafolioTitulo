@@ -2,6 +2,7 @@
 
 Ejecutar (desde la carpeta Backend):
     uvicorn app.main:app --reload
+Web del sistema:           http://127.0.0.1:8000
 Documentación interactiva: http://127.0.0.1:8000/docs
 """
 from contextlib import asynccontextmanager
@@ -10,6 +11,7 @@ import psycopg
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from psycopg_pool import PoolTimeout
 
 from . import config, db
@@ -59,3 +61,9 @@ def salud():
 app.include_router(auth.router, prefix="/api")
 app.include_router(usuarios.router, prefix="/api")
 app.include_router(planta.router, prefix="/api")
+
+# La web (login y dashboard) se sirve desde la misma API: http://127.0.0.1:8000
+# Se monta al final para que las rutas /api tengan prioridad.
+_WEB = config.RAIZ / "web"
+if _WEB.is_dir():
+    app.mount("/", StaticFiles(directory=_WEB, html=True), name="web")

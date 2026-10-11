@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ingresar | Mantenimiento predictivo QLA</title>
+<link rel="icon" href="/img/logo-qla.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Archivo+Narrow:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="login">
+  <section class="login-marca">
+    <div>
+      <img src="/img/logo-qla-claro.png" alt="Química Latinoamericana">
+      <h1>Mantenimiento predictivo del molino coloidal</h1>
+      <p>Lecturas del molino MC-01 en tiempo real, alarmas y predicción de fallas para la planta de emulsiones de El Salto.</p>
+    </div>
+    <p class="pie">Proyecto de título Duoc UC, en conjunto con Química Latinoamericana S.A.</p>
+  </section>
+
+  <section class="login-form">
+    <form id="form-login" novalidate>
+      <h2>Ingresar</h2>
+      <div id="msg-login" class="mensaje info" hidden></div>
+      <div class="campo">
+        <label for="email">Correo</label>
+        <input id="email" type="email" autocomplete="username" required>
+      </div>
+      <div class="campo">
+        <label for="clave">Contraseña</label>
+        <input id="clave" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primario" type="submit" id="btn-login">Ingresar</button>
+      <p class="ayuda">Si olvidó su contraseña, pídale al administrador que le asigne una temporal.</p>
+    </form>
+
+    <form id="form-cambio" novalidate hidden>
+      <h2>Cree su contraseña</h2>
+      <p class="ayuda">Es su primer ingreso o le asignaron una contraseña temporal. Elija una nueva para continuar: entre 8 y 72 caracteres, con letras y números.</p>
+      <div id="msg-cambio" class="mensaje error" hidden></div>
+      <div class="campo">
+        <label for="clave-nueva">Contraseña nueva</label>
+        <input id="clave-nueva" type="password" autocomplete="new-password" minlength="8" maxlength="72" required>
+      </div>
+      <div class="campo">
+        <label for="clave-repetida">Repita la contraseña nueva</label>
+        <input id="clave-repetida" type="password" autocomplete="new-password" required>
+      </div>
+      <button class="btn btn-primario" type="submit" id="btn-cambio">Guardar y continuar</button>
+    </form>
+  </section>
+</div>
+<script src="/js/api.js"></script>
+<script src="/js/login.js"></script>
+</body>
+</html>

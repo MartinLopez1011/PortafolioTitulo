@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Molino MC-01 | Mantenimiento predictivo QLA</title>
+<link rel="icon" href="/img/logo-qla.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Archivo+Narrow:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header class="cabecera">
+  <div class="marca">
+    <img src="/img/logo-qla-claro.png" alt="Química Latinoamericana">
+    <div>
+      <strong id="cab-equipo">Molino coloidal MC-01</strong>
+      <span>Planta de emulsiones, El Salto</span>
+    </div>
+  </div>
+  <div class="estado">
+    <span class="chip" id="cab-estado"><span class="punto"></span>Cargando…</span>
+    <span class="tenue num" id="cab-lectura"></span>
+    <label class="sr" for="sel-fuente">Origen de los datos</label>
+    <select id="sel-fuente" class="compacto" title="Origen de los datos">
+      <option value="simulado">Datos simulados</option>
+      <option value="real">Datos reales</option>
+    </select>
+    <div class="usuario">
+      <span><span id="cab-usuario"></span> <span class="rol" id="cab-rol"></span></span>
+      <button class="btn-texto" id="btn-salir">Cerrar sesión</button>
+    </div>
+  </div>
+</header>
+
+<nav class="nav" role="tablist" aria-label="Secciones">
+  <button role="tab" data-vista="panel" aria-selected="true">Panel</button>
+  <button role="tab" data-vista="tendencias" aria-selected="false">Tendencias</button>
+  <button role="tab" data-vista="alarmas" aria-selected="false">Alarmas <span class="insignia" id="insignia-alarmas" hidden></span></button>
+  <button role="tab" data-vista="mantenimiento" aria-selected="false">Mantenimiento</button>
+  <button role="tab" data-vista="usuarios" aria-selected="false" data-nivel="4" hidden>Usuarios</button>
+</nav>
+
+<main>
+  <!-- ======================= PANEL ======================= -->
+  <section class="vista" data-panel="panel">
+    <div class="franja">
+      <div>
+        <div class="etiqueta">Estado del molino</div>
+        <div class="valor" id="ind-estado">—</div>
+        <div class="detalle" id="ind-asfalto"></div>
+      </div>
+      <div>
+        <div class="etiqueta">Sensores fuera de rango</div>
+        <div class="valor num" id="ind-fuera">—</div>
+        <div class="detalle" id="ind-fuera-det"></div>
+      </div>
+      <div>
+        <div class="etiqueta">Alarmas activas</div>
+        <div class="valor num" id="ind-alarmas">—</div>
+        <div class="detalle" id="ind-alarmas-det"></div>
+      </div>
+      <div>
+        <div class="etiqueta">Última lectura</div>
+        <div class="valor num" id="ind-hora">—</div>
+        <div class="detalle" id="ind-fecha"></div>
+      </div>
+    </div>
+
+    <div id="aviso-detenido" class="mensaje info" hidden>
+      El molino no está produciendo. Los rangos normales corresponden a producción, por eso algunas lecturas aparecen fuera de rango mientras está detenido.
+    </div>
+
+    <div class="bloque">
+      <div class="bloque-cab">
+        <h2>Operación de las últimas 24 horas</h2>
+        <p>Cada tramo es un modo de operación registrado minuto a minuto</p>
+      </div>
+      <div id="graf-estado-panel" class="grafico-estado" role="img" aria-label="Línea de tiempo del estado del molino"></div>
+    </div>
+
+    <div class="bloque">
+      <div class="bloque-cab">
+        <h2>Predicción de fallas</h2>
+        <p id="pred-fecha"></p>
+      </div>
+      <div id="pred-contenido"></div>
+    </div>
+
+    <div>
+      <div class="bloque-cab">
+        <h2>Panel de instrumentos</h2>
+        <p>Ordenado según el recorrido del proceso. Seleccione una lectura para ver su tendencia.</p>
+      </div>
+      <div class="panel-instrumentos" id="instrumentos"></div>
+    </div>
+  </section>
+
+  <!-- ======================= TENDENCIAS ======================= -->
+  <section class="vista" data-panel="tendencias" hidden>
+    <div class="bloque">
+      <div class="filtros">
+        <div class="campo">
+          <label for="sel-sensor">Agregar sensor</label>
+          <select id="sel-sensor"></select>
+        </div>
+        <button class="btn" id="btn-agregar">Agregar</button>
+        <div class="campo">
+          <span class="sr" id="lbl-rango">Periodo</span>
+          <div class="segmentado" role="group" aria-labelledby="lbl-rango" id="seg-rango">
+            <button data-horas="24" aria-pressed="true">24 h</button>
+            <button data-horas="72" aria-pressed="false">3 días</button>
+            <button data-horas="168" aria-pressed="false">7 días</button>
+            <button data-horas="336" aria-pressed="false">14 días</button>
+          </div>
+        </div>
+      </div>
+      <div class="chips-sel" id="chips-sensores" style="margin-top:12px"></div>
+    </div>
+    <div class="bloque">
+      <div class="bloque-cab">
+        <h2>Tendencias</h2>
+        <p id="tend-periodo"></p>
+      </div>
+      <div class="grafico-titulo"><span>Estado del molino</span></div>
+      <div id="graf-estado-tend" class="grafico-estado"></div>
+      <div id="graficos"></div>
+    </div>
+  </section>
+
+  <!-- ======================= ALARMAS ======================= -->
+  <section class="vista" data-panel="alarmas" hidden>
+    <div class="bloque">
+      <div class="bloque-cab">
+        <h2>Alarmas</h2>
+        <div class="segmentado" role="group" aria-label="Filtro de alarmas" id="seg-alarmas">
+          <button data-activas="true" aria-pressed="true">Activas</button>
+          <button data-activas="false" aria-pressed="false">Todas</button>
+        </div>
+      </div>
+      <div class="tabla-scroll" id="tabla-alarmas"></div>
+    </div>
+  </section>
+
+  <!-- ======================= MANTENIMIENTO ======================= -->
+  <section class="vista" data-panel="mantenimiento" hidden>
+    <div class="bloque" id="bloque-nuevo-mant" data-nivel="3" hidden>
+      <div class="bloque-cab"><h2>Registrar mantenimiento</h2>
+        <p>Cada registro sirve como etiqueta real para reentrenar los modelos</p></div>
+      <form id="form-mant" class="form-grid">
+        <div class="campo"><label for="m-componente">Componente</label>
+          <input id="m-componente" required minlength="2" maxlength="60" placeholder="Ej.: F-101 filtro"></div>
+        <div class="campo"><label for="m-tipo">Tipo</label>
+          <select id="m-tipo"><option value="correctivo">Correctivo</option><option value="preventivo">Preventivo</option><option value="predictivo">Predictivo</option></select></div>
+        <div class="campo"><label for="m-falla">Falla asociada</label><select id="m-falla"></select></div>
+        <div class="campo"><label for="m-inicio">Inicio</label><input id="m-inicio" type="datetime-local" required></div>
+        <div class="campo"><label for="m-fin">Término</label><input id="m-fin" type="datetime-local"></div>
+        <div class="campo ancho"><label for="m-desc">Descripción</label><textarea id="m-desc" maxlength="2000" placeholder="Qué se hizo y qué se encontró"></textarea></div>
+        <div class="acciones ancho"><button class="btn btn-primario" type="submit">Registrar mantenimiento</button><span id="msg-mant"></span></div>
+      </form>
+    </div>
+    <div class="bloque">
+      <div class="bloque-cab"><h2>Historial</h2></div>
+      <div class="tabla-scroll" id="tabla-mant"></div>
+    </div>
+  </section>
+
+  <!-- ======================= USUARIOS ======================= -->
+  <section class="vista" data-panel="usuarios" hidden>
+    <div class="bloque">
+      <div class="bloque-cab"><h2>Crear usuario</h2><p>El usuario deberá cambiar la contraseña temporal en su primer ingreso</p></div>
+      <form id="form-usuario" class="form-grid">
+        <div class="campo"><label for="u-nombre">Nombre</label><input id="u-nombre" required minlength="2" maxlength="120"></div>
+        <div class="campo"><label for="u-email">Correo</label><input id="u-email" type="email" required maxlength="150"></div>
+        <div class="campo"><label for="u-rol">Rol</label>
+          <select id="u-rol"><option value="visualizador">Visualizador</option><option value="operador">Operador</option><option value="supervisor">Supervisor</option><option value="administrador">Administrador</option></select></div>
+        <div class="campo"><label for="u-clave">Contraseña temporal</label><input id="u-clave" type="text" required minlength="8" maxlength="72" autocomplete="off"></div>
+        <div class="acciones ancho"><button class="btn btn-primario" type="submit">Crear usuario</button><span id="msg-usuario"></span></div>
+      </form>
+    </div>
+    <div class="bloque">
+      <div class="bloque-cab"><h2>Usuarios</h2></div>
+      <div class="tabla-scroll" id="tabla-usuarios"></div>
+    </div>
+    <div class="bloque">
+      <div class="bloque-cab"><h2>Registro de accesos</h2><p>Últimos 50 eventos</p></div>
+      <div class="tabla-scroll" id="tabla-auditoria"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg-reconocer">
+  <form method="dialog" id="form-reconocer">
+    <h2>Reconocer alarma</h2>
+    <p class="tenue" id="dlg-reconocer-texto"></p>
+    <div class="campo"><label for="dlg-comentario">Comentario (qué se revisó o hizo)</label>
+      <textarea id="dlg-comentario" maxlength="250"></textarea></div>
+    <div class="acciones"><button class="btn btn-primario" value="ok">Reconocer alarma</button><button class="btn" value="cancelar" formnovalidate>Cancelar</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-clave">
+  <form method="dialog" id="form-clave">
+    <h2>Asignar contraseña temporal</h2>
+    <p class="tenue" id="dlg-clave-texto"></p>
+    <div class="campo"><label for="dlg-clave-valor">Contraseña temporal</label>
+      <input id="dlg-clave-valor" type="text" minlength="8" maxlength="72" autocomplete="off"></div>
+    <div class="acciones"><button class="btn btn-primario" value="ok">Asignar y desbloquear</button><button class="btn" value="cancelar" formnovalidate>Cancelar</button></div>
+  </form>
+</dialog>
+
+<div class="aviso-toast" id="toast" hidden></div>
+
+<script src="/js/vendor/echarts.min.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

@@ -82,8 +82,15 @@ def modificar(usuario_id: int, datos: UsuarioCambios, request: Request, admin: d
         fila = cur.fetchone()
         if fila is None:
             raise HTTPException(404, "Usuario no encontrado")
+        detalle = []
+        if datos.rol is not None:
+            detalle.append(f"rol {datos.rol}")
+        if datos.activo is not None:
+            detalle.append("activado" if datos.activo else "desactivado")
+        if datos.nombre is not None:
+            detalle.append("nombre actualizado")
         auditar(cur, admin["id"], admin["email"], ip_cliente(request), "usuario_modificado",
-                f"{fila['email']}: {datos.model_dump(exclude_none=True)}")
+                f"{fila['email']}: {', '.join(detalle)}")
         cur.execute(_SELECT + " WHERE u.id = %s", (usuario_id,))
         return cur.fetchone()
 
