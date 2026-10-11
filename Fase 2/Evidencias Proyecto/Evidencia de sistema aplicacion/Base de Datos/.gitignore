@@ -1,0 +1,4 @@
+# Secretos y datos pesados: no se suben al repositorio
+.env
+*.csv
+__pycache__/
