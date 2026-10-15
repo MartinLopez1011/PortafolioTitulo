@@ -53,6 +53,9 @@ async def base_no_disponible(request: Request, exc: Exception):
 
 @app.get("/api/salud", tags=["Sistema"], summary="Estado de la API y de la base de datos")
 def salud():
+    if db.MODO_DEMO:
+        import datetime
+        return {"api": "ok", "base_de_datos": "modo_demostracion", "hora_bd": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     with db.cursor() as cur:
         cur.execute("SELECT now() AS hora_bd")
         return {"api": "ok", "base_de_datos": "ok", "hora_bd": cur.fetchone()["hora_bd"]}

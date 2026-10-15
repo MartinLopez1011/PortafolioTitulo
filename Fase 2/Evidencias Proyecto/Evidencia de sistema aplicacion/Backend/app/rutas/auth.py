@@ -24,6 +24,19 @@ class CambioClave(BaseModel):
 
 @router.post("/login", summary="Iniciar sesión y obtener un token")
 def login(datos: LoginEntrada, request: Request):
+    from .. import db
+    if db.MODO_DEMO:
+        from .. import demo_store
+        u = demo_store.USUARIOS.get(datos.email.strip().lower())
+        if not u:
+            u = demo_store.USUARIOS["admin@demo.qla.cl"]
+        return {
+            "access_token": crear_token(u),
+            "token_type": "bearer",
+            "expira_en_segundos": config.JWT_MINUTOS * 60,
+            "usuario": {k: u[k] for k in ("id", "nombre", "email", "rol", "nivel", "debe_cambiar_clave")},
+        }
+
     ip = ip_cliente(request)
     email = datos.email.strip().lower()
     error = None          # se lanza al final, después del COMMIT, para no perder el registro
@@ -86,6 +99,9 @@ def me(u: dict = Depends(usuario_actual)):
 
 @router.post("/cambiar-clave", summary="Cambiar la contraseña propia")
 def cambiar_clave(datos: CambioClave, request: Request, u: dict = Depends(usuario_actual)):
+    from .. import db
+    if db.MODO_DEMO:
+        return {"mensaje": "Contraseña actualizada (modo demostración)"}
     validar_clave_nueva(datos.clave_nueva)
     if datos.clave_nueva == datos.clave_actual:
         raise HTTPException(422, "La contraseña nueva debe ser distinta de la actual")
