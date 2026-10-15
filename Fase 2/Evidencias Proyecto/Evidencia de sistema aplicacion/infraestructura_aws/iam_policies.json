@@ -26,6 +26,25 @@
         "sns:Publish"
       ],
       "Resource": "arn:aws:sns:*:*:QLA_Alertas_Mantenimiento"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iot:Publish"
+      ],
+      "Resource": "arn:aws:iot:*:*:topic/planta/asfalto/molino/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::backup-planta-asfalto-molino-ml",
+        "arn:aws:s3:::backup-planta-asfalto-molino-ml/*"
+      ]
     }
   ]
 }

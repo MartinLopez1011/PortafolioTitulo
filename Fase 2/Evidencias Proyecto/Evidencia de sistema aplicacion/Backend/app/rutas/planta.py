@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from .. import config
 from ..db import cursor
+from ..iot_ws import AWS_REGION, IOT_ENDPOINT, generar_iot_websocket_url
 from ..seguridad import OPERADOR, SUPERVISOR, VISUALIZADOR, auditar, ip_cliente, requiere_nivel
 
 router = APIRouter(tags=["Planta y dashboard"])
@@ -293,3 +294,19 @@ def crear_mantenimiento(datos: MantenimientoNuevo, request: Request, equipo: str
         nuevo = cur.fetchone()["id"]
         auditar(cur, u["id"], u["email"], ip_cliente(request), "mantenimiento_registrado", f"id {nuevo}")
     return {"id": nuevo, "mensaje": "Mantenimiento registrado"}
+
+
+@router.get("/iot/ws-url", summary="URL pre-firmada WebSocket para conexión MQTT en tiempo real")
+def iot_ws_url(u: dict = Depends(lector)):
+    """Genera una URL pre-firmada SigV4 para conectar al broker AWS IoT Core via WebSockets."""
+    url = generar_iot_websocket_url()
+    return {
+        "disponible": bool(url),
+        "url": url,
+        "endpoint": IOT_ENDPOINT,
+        "region": AWS_REGION,
+        "topics": {
+            "telemetria": "planta/asfalto/molino/telemetria",
+            "predicciones": "planta/asfalto/molino/predicciones",
+        },
+    }

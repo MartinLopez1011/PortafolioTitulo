@@ -103,6 +103,7 @@
     const inicial = (location.hash || "#panel").slice(1);
     irA(document.querySelector(`.nav button[data-vista="${inicial}"]:not([hidden])`) ? inicial : "panel");
     estado.temporizador = setInterval(() => { if (!document.hidden) actualizarCabecera(); if (estado.vista === "panel") cargarPanel(); }, 60000);
+    conectarMqttTiempoReal();
   }
 
   function irA(vista) {
@@ -584,6 +585,114 @@
       } catch (e) { toast(e.message, "error"); }
     };
     dlg.showModal();
+  }
+
+  // ------------------------------------------------------------ TIEMPO REAL (AWS IoT Core MQTT / WebSocket)
+  let clienteMqtt = null;
+  let reintentoMqttTimer = null;
+
+  function actualizarBadgeTiempoReal(conectado, textoExtra = "") {
+    const b = $("cab-tiempo-real");
+    if (!b) return;
+    if (conectado) {
+      b.className = "chip en-vivo";
+      b.replaceChildren(el("span", { clase: "punto" }), "En vivo (MQTT)");
+      b.title = "Conexión WebSocket activa con AWS IoT Core. Actualización instantánea sin latencia." + (textoExtra ? " " + textoExtra : "");
+    } else {
+      b.className = "chip offline";
+      b.replaceChildren(el("span", { clase: "punto" }), "Polling (60s)");
+      b.title = "Modo actualización periódica cada 60s." + (textoExtra ? " " + textoExtra : "");
+    }
+  }
+
+  async function conectarMqttTiempoReal() {
+    clearTimeout(reintentoMqttTimer);
+    actualizarBadgeTiempoReal(false, "Conectando...");
+    try {
+      if (!window.Paho || !window.Paho.MQTT) {
+        console.info("Biblioteca Paho MQTT no disponible; usando polling periódico.");
+        actualizarBadgeTiempoReal(false);
+        return;
+      }
+      const cfg = await api("/iot/ws-url");
+      if (!cfg || !cfg.disponible || !cfg.url) {
+        console.info("AWS IoT WebSocket no configurado en el servidor; usando polling periódico.");
+        actualizarBadgeTiempoReal(false);
+        return;
+      }
+
+      const urlObj = new URL(cfg.url);
+      const host = urlObj.hostname;
+      const path = urlObj.pathname + urlObj.search;
+      const clientId = "qla_dash_" + Math.random().toString(16).slice(2, 10);
+
+      const client = new Paho.MQTT.Client(host, 443, path, clientId);
+
+      client.onConnectionLost = (resp) => {
+        console.warn("Conexión MQTT interrumpida:", resp.errorMessage);
+        actualizarBadgeTiempoReal(false, "Reconectando en 10s...");
+        reintentoMqttTimer = setTimeout(conectarMqttTiempoReal, 10000);
+      };
+
+      client.onMessageArrived = (msg) => {
+        try {
+          const payload = JSON.parse(msg.payloadString);
+          procesarEventoMqtt(msg.destinationName, payload);
+        } catch (e) {
+          console.error("Error procesando payload MQTT:", e);
+        }
+      };
+
+      client.connect({
+        useSSL: true,
+        timeout: 10,
+        keepAliveInterval: 30,
+        onSuccess: () => {
+          console.info("Conectado exitosamente a AWS IoT Core por WebSocket");
+          actualizarBadgeTiempoReal(true);
+          if (cfg.topics && cfg.topics.telemetria) client.subscribe(cfg.topics.telemetria);
+          if (cfg.topics && cfg.topics.predicciones) client.subscribe(cfg.topics.predicciones);
+        },
+        onFailure: (err) => {
+          console.warn("Fallo conexión MQTT a AWS IoT:", err.errorMessage);
+          actualizarBadgeTiempoReal(false, "Fallo de conexión");
+          reintentoMqttTimer = setTimeout(conectarMqttTiempoReal, 30000);
+        }
+      });
+
+      clienteMqtt = client;
+    } catch (e) {
+      console.warn("No se pudo iniciar cliente MQTT:", e.message);
+      actualizarBadgeTiempoReal(false);
+    }
+  }
+
+  function procesarEventoMqtt(topic, payload) {
+    if (topic.endsWith("/telemetria")) {
+      const lectura = payload.lectura_actual || payload;
+      const ts = payload.timestamp ? new Date(payload.timestamp * 1000) : new Date();
+      estado.ultima = ts.toISOString();
+      $("cab-lectura").textContent = "Última lectura " + fechaHora(estado.ultima);
+      $("ind-hora").textContent = fmtHora.format(ts);
+      $("ind-fecha").textContent = fechaHora(estado.ultima).split(",")[0] + " (en vivo)";
+      if (lectura.ESTADO_operacion) {
+        const est = ESTADOS[lectura.ESTADO_operacion.toLowerCase()] || { texto: lectura.ESTADO_operacion, color: "#199e70" };
+        const chip = $("cab-estado");
+        if (chip) chip.replaceChildren(el("span", { clase: "punto", style: `background:${est.color}` }), est.texto);
+        const indEstado = $("ind-estado");
+        if (indEstado) indEstado.textContent = est.texto;
+      }
+      if (estado.vista === "panel") {
+        cargarPanel();
+      }
+    } else if (topic.endsWith("/predicciones")) {
+      if (payload.alerta_activa) {
+        toast(`Alerta predictiva: Posible falla ${payload.falla || 'detectada'} (Riesgo 24h: ${(payload.riesgo_24h * 100).toFixed(1)}%)`, "error");
+      }
+      if (estado.vista === "panel") {
+        cargarPanel();
+      }
+    }
   }
 
   iniciar();

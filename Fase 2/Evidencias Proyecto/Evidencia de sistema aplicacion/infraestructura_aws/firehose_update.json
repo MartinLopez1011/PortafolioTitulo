@@ -1,0 +1,38 @@
+{
+    "RoleARN": "arn:aws:iam::441381011844:role/LabRole",
+    "BucketARN": "arn:aws:s3:::backup-planta-asfalto-molino-ml",
+    "Prefix": "historico/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/",
+    "ErrorOutputPrefix": "historico-errores/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/!{firehose:error-output-type}/",
+    "BufferingHints": {
+        "SizeInMBs": 64,
+        "IntervalInSeconds": 60
+    },
+    "CompressionFormat": "UNCOMPRESSED",
+    "CloudWatchLoggingOptions": {
+        "Enabled": true,
+        "LogGroupName": "/aws/kinesisfirehose/stream-backup-planta-asfalto",
+        "LogStreamName": "DestinationDelivery"
+    },
+    "DataFormatConversionConfiguration": {
+        "Enabled": true,
+        "SchemaConfiguration": {
+            "RoleARN": "arn:aws:iam::441381011844:role/LabRole",
+            "DatabaseName": "qla_planta_asfalto",
+            "TableName": "telemetria_molino",
+            "Region": "us-east-1",
+            "VersionId": "LATEST"
+        },
+        "InputFormatConfiguration": {
+            "Deserializer": {
+                "OpenXJsonSerDe": {}
+            }
+        },
+        "OutputFormatConfiguration": {
+            "Serializer": {
+                "ParquetSerDe": {
+                    "Compression": "SNAPPY"
+                }
+            }
+        }
+    }
+}

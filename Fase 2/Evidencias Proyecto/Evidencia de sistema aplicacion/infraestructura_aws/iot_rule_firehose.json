@@ -1,0 +1,16 @@
+{
+    "sql": "SELECT * FROM 'planta/asfalto/molino/telemetria'",
+    "description": "Envia telemetria continua del molino coloidal a Amazon Data Firehose para conversion Parquet y particionamiento temporal en S3",
+    "actions": [
+        {
+            "firehose": {
+                "roleArn": "arn:aws:iam::441381011844:role/LabRole",
+                "deliveryStreamName": "stream-backup-planta-asfalto",
+                "separator": "\n",
+                "batchMode": false
+            }
+        }
+    ],
+    "ruleDisabled": false,
+    "awsIotSqlVersion": "2016-03-23"
+}
