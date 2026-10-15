@@ -65,7 +65,7 @@ def lambda_handler(event, context):
         resultado_inferencia = engine.ejecutar_tiempo_real(lectura)
 
         # 2. Si vienen features para modelos predictivos (80 features), ejecutarlos también
-        if "features_predictivo" in event or any(col in lectura for col in engine.features_80):
+        if "features_predictivo" in event or all(col in lectura for col in engine.features_80):
             try:
                 features_pred = event.get("features_predictivo", lectura)
                 resultado_predictivo = engine.ejecutar_predictivo(features_pred)

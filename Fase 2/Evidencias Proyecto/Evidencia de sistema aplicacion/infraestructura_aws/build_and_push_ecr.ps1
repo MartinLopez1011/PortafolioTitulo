@@ -33,10 +33,16 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Imagen subida exitosamente: ${ECR_URI}:${IMAGE_TAG}" -ForegroundColor Green
-docker push "${ECR_URI}:${IMAGE_TAG}"
+
+Write-Host "5. Actualizando función AWS Lambda con la nueva imagen..." -ForegroundColor Cyan
+aws lambda update-function-code `
+  --function-name $REPO_NAME `
+  --image-uri "${ECR_URI}:${IMAGE_TAG}" `
+  --region $AWS_REGION
+
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Falló la subida de la imagen a ECR (docker push)." -ForegroundColor Red
+    Write-Host "ERROR: Falló la actualización de la función Lambda." -ForegroundColor Red
     exit 1
 }
 
-Write-Host "Imagen subida exitosamente: ${ECR_URI}:${IMAGE_TAG}" -ForegroundColor Green
+Write-Host "Función Lambda actualizada exitosamente." -ForegroundColor Green
