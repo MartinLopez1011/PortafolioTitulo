@@ -2,7 +2,7 @@
 import datetime as dt
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from .. import config
@@ -373,3 +373,61 @@ def iot_ws_url(u: dict = Depends(lector)):
             "predicciones": "planta/asfalto/molino/predicciones",
         },
     }
+
+
+_clientes_ws: set[WebSocket] = set()
+
+
+async def emitir_telemetria_en_vivo(payload: dict):
+    """Transmite telemetría en tiempo real a todos los navegadores conectados."""
+    muertos = []
+    for ws in list(_clientes_ws):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            muertos.append(ws)
+    for ws in muertos:
+        _clientes_ws.discard(ws)
+
+
+@router.websocket("/ws/telemetria")
+async def ws_telemetria(websocket: WebSocket):
+    await websocket.accept()
+    _clientes_ws.add(websocket)
+    try:
+        from .. import demo_store
+        await websocket.send_json({
+            "topic": "planta/asfalto/molino/telemetria",
+            "tipo": "bienvenida",
+            "timestamp": int(dt.datetime.now(dt.timezone.utc).timestamp()),
+            "lectura_actual": demo_store.VALORES_INICIALES
+        })
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _clientes_ws.discard(websocket)
+
+
+@router.post("/telemetria", summary="Ingesta de telemetría en vivo (Edge Simulator)")
+async def ingesta_telemetria(datos: dict):
+    """Recibe telemetría desde el simulador de planta o Edge Gateway y la distribuye en vivo."""
+    from .. import demo_store
+    lectura = datos.get("lectura_actual") or datos
+    if isinstance(lectura, dict):
+        for k, v in lectura.items():
+            if k in demo_store.VALORES_INICIALES:
+                try:
+                    demo_store.VALORES_INICIALES[k] = float(v)
+                except (ValueError, TypeError):
+                    pass
+    
+    # Broadcast a navegadores conectados
+    await emitir_telemetria_en_vivo({
+        "topic": "planta/asfalto/molino/telemetria",
+        "timestamp": datos.get("timestamp", int(dt.datetime.now(dt.timezone.utc).timestamp())),
+        "equipo_id": datos.get("equipo_id", "MOLINO_QLA_01"),
+        "lectura_actual": lectura
+    })
+    return {"status": "ok", "clientes_activos": len(_clientes_ws)}

@@ -103,7 +103,7 @@
     const inicial = (location.hash || "#panel").slice(1);
     irA(document.querySelector(`.nav button[data-vista="${inicial}"]:not([hidden])`) ? inicial : "panel");
     estado.temporizador = setInterval(() => { if (!document.hidden) actualizarCabecera(); if (estado.vista === "panel") cargarPanel(); }, 60000);
-    conectarMqttTiempoReal();
+    conectarCanalTiempoReal();
   }
 
   function irA(vista) {
@@ -160,6 +160,8 @@
     $("ind-fecha").textContent = r.ultima_lectura ? fechaHora(r.ultima_lectura).split(",")[0] + (estado.fuente === "simulado" ? ", datos simulados" : "") : "Sin lecturas para esta fuente";
     $("aviso-detenido").hidden = !(r.estado && r.estado !== "produccion" && r.sensores_fuera_de_rango > 0);
 
+    estado.lecturasActuales = lecturas;
+    estado.prediccionesActuales = pred;
     pintarInstrumentos(lecturas);
     pintarPredicciones(pred);
     if (r.ultima_lectura) {
@@ -587,9 +589,10 @@
     dlg.showModal();
   }
 
-  // ------------------------------------------------------------ TIEMPO REAL (AWS IoT Core MQTT / WebSocket)
+  // ------------------------------------------------------------ TIEMPO REAL (Canal WebSocket y AWS IoT Core)
   let clienteMqtt = null;
   let reintentoMqttTimer = null;
+  let wsLocal = null;
 
   function actualizarBadgeTiempoReal(conectado, textoExtra = "") {
     const b = $("cab-tiempo-real");
@@ -597,7 +600,7 @@
     if (conectado) {
       b.className = "chip en-vivo";
       b.replaceChildren(el("span", { clase: "punto" }), "En vivo (MQTT)");
-      b.title = "Conexión WebSocket activa con AWS IoT Core. Actualización instantánea sin latencia." + (textoExtra ? " " + textoExtra : "");
+      b.title = "Canal de telemetría en tiempo real activo." + (textoExtra ? " " + textoExtra : "");
     } else {
       b.className = "chip offline";
       b.replaceChildren(el("span", { clase: "punto" }), "Polling (60s)");
@@ -605,47 +608,66 @@
     }
   }
 
-  async function conectarMqttTiempoReal() {
+  function conectarCanalTiempoReal() {
     clearTimeout(reintentoMqttTimer);
     actualizarBadgeTiempoReal(false, "Conectando...");
+
+    // 1. Canal WebSocket en vivo
+    const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProto}//${location.host}/api/ws/telemetria`;
+
     try {
-      if (!window.Paho || !window.Paho.MQTT) {
-        console.info("Biblioteca Paho MQTT no disponible; usando polling periódico.");
+      wsLocal = new WebSocket(wsUrl);
+      wsLocal.onopen = () => {
+        console.info("Canal en vivo WebSocket conectado:", wsUrl);
+        actualizarBadgeTiempoReal(true);
+      };
+      wsLocal.onmessage = (ev) => {
+        try {
+          const datos = JSON.parse(ev.data);
+          const topic = datos.topic || "planta/asfalto/molino/telemetria";
+          procesarEventoMqtt(topic, datos);
+        } catch (e) {
+          console.error("Error procesando mensaje WebSocket:", e);
+        }
+      };
+      wsLocal.onclose = () => {
+        actualizarBadgeTiempoReal(false, "Reconectando...");
+        reintentoMqttTimer = setTimeout(conectarCanalTiempoReal, 5000);
+      };
+      wsLocal.onerror = () => {
         actualizarBadgeTiempoReal(false);
-        return;
-      }
+      };
+    } catch (e) {
+      actualizarBadgeTiempoReal(false);
+    }
+
+    // 2. Intentar también conexión MQTT AWS IoT Core directa si Paho está disponible
+    conectarMqttAwsIot();
+  }
+
+  async function conectarMqttAwsIot() {
+    try {
+      if (!window.Paho || !window.Paho.MQTT) return;
       const cfg = await api("/iot/ws-url");
-      if (!cfg || !cfg.disponible || !cfg.url) {
-        console.info("AWS IoT WebSocket no configurado en el servidor; usando polling periódico.");
-        actualizarBadgeTiempoReal(false);
-        return;
-      }
+      if (!cfg || !cfg.disponible || !cfg.url) return;
 
       const urlObj = new URL(cfg.url);
       const host = urlObj.hostname;
       const path = urlObj.pathname + urlObj.search;
       const clientId = "qla_dash_" + Math.random().toString(16).slice(2, 10);
-
       const client = new Paho.MQTT.Client(host, 443, path, clientId);
-
-      client.onConnectionLost = (resp) => {
-        console.warn("Conexión MQTT interrumpida:", resp.errorMessage);
-        actualizarBadgeTiempoReal(false, "Reconectando en 10s...");
-        reintentoMqttTimer = setTimeout(conectarMqttTiempoReal, 10000);
-      };
 
       client.onMessageArrived = (msg) => {
         try {
           const payload = JSON.parse(msg.payloadString);
           procesarEventoMqtt(msg.destinationName, payload);
-        } catch (e) {
-          console.error("Error procesando payload MQTT:", e);
-        }
+        } catch (e) {}
       };
 
       client.connect({
         useSSL: true,
-        timeout: 10,
+        timeout: 8,
         keepAliveInterval: 30,
         onSuccess: () => {
           console.info("Conectado exitosamente a AWS IoT Core por WebSocket");
@@ -654,17 +676,11 @@
           if (cfg.topics && cfg.topics.predicciones) client.subscribe(cfg.topics.predicciones);
         },
         onFailure: (err) => {
-          console.warn("Fallo conexión MQTT a AWS IoT:", err.errorMessage);
-          actualizarBadgeTiempoReal(false, "Fallo de conexión");
-          reintentoMqttTimer = setTimeout(conectarMqttTiempoReal, 30000);
+          console.info("AWS IoT Core WebSocket no disponible directamente:", err.errorMessage);
         }
       });
-
       clienteMqtt = client;
-    } catch (e) {
-      console.warn("No se pudo iniciar cliente MQTT:", e.message);
-      actualizarBadgeTiempoReal(false);
-    }
+    } catch (e) {}
   }
 
   function procesarEventoMqtt(topic, payload) {
@@ -682,15 +698,37 @@
         const indEstado = $("ind-estado");
         if (indEstado) indEstado.textContent = est.texto;
       }
-      if (estado.vista === "panel") {
-        cargarPanel();
+      if (estado.lecturasActuales) {
+        let fueras = 0;
+        estado.lecturasActuales.forEach((l) => {
+          if (l.tag in lectura) {
+            l.valor = lectura[l.tag];
+            l.ts = estado.ultima;
+            l.fuera_de_rango = (l.normal_min !== null && l.valor < l.normal_min) || (l.normal_max !== null && l.valor > l.normal_max);
+          }
+          if (l.fuera_de_rango) fueras++;
+        });
+        $("ind-fuera").textContent = `${fueras} de ${estado.lecturasActuales.length}`;
+        $("ind-fuera-det").textContent = fueras ? "Revise las lecturas marcadas" : "Todas dentro de su rango";
+        if (estado.vista === "panel") {
+          pintarInstrumentos(estado.lecturasActuales);
+        }
       }
     } else if (topic.endsWith("/predicciones")) {
       if (payload.alerta_activa) {
-        toast(`Alerta predictiva: Posible falla ${payload.falla || 'detectada'} (Riesgo 24h: ${(payload.riesgo_24h * 100).toFixed(1)}%)`, "error");
+        toast(`⚠️ Alerta predictiva: Posible falla ${payload.falla || 'detectada'} (Riesgo 24h: ${((payload.riesgo_24h || 0) * 100).toFixed(1)}%)`, "error");
       }
-      if (estado.vista === "panel") {
-        cargarPanel();
+      if (estado.prediccionesActuales && payload.riesgo_24h !== undefined) {
+        const p24 = estado.prediccionesActuales.find(p => p.horizonte === "24h");
+        if (p24) {
+          p24.prob_falla = payload.riesgo_24h;
+          p24.falla = payload.falla;
+          p24.titulo = payload.falla;
+          p24.ts = new Date().toISOString();
+        }
+        if (estado.vista === "panel") {
+          pintarPredicciones(estado.prediccionesActuales);
+        }
       }
     }
   }
