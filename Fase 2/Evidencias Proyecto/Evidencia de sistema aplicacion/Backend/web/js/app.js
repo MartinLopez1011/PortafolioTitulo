@@ -23,6 +23,7 @@
     limpieza: { texto: "Limpieza", color: "#9085e9" },
     espera: { texto: "Espera", color: "#c98500" },
     detenida: { texto: "Detenida", color: "#4a5468" },
+    detenido: { texto: "Detenido", color: "#4a5468" },
     mantenimiento: { texto: "Mantenimiento", color: "#d95926" },
     falla: { texto: "Falla", color: "#e66767" },
   };
@@ -59,11 +60,16 @@
   function mostrarError(contenedor, e) { contenedor.replaceChildren(el("div", { clase: "mensaje error", texto: e.message })); }
   function rangoTexto(s) {
     if (s.normal_min === null && s.normal_max === null) return null;
-    const u = s.unidad === "0/1" ? "" : " " + s.unidad;
+    const u = (s.unidad === "0/1" || s.unidad === "0/1/2") ? "" : " " + s.unidad;
     if (s.normal_min !== null && s.normal_max !== null) return `Normal entre ${numero(s.normal_min)} y ${numero(s.normal_max)}${u}`;
     return s.normal_min !== null ? `Normal desde ${numero(s.normal_min)}${u}` : `Normal hasta ${numero(s.normal_max)}${u}`;
   }
   function valorTexto(s) {
+    if (s.unidad === "0/1/2" || s.tag === "EST_niv_betum_dep") {
+      if (s.valor === null || s.valor === undefined) return "—";
+      const nv = Math.round(Number(s.valor));
+      return nv === 0 ? "0 (OK)" : nv === 1 ? "1 (Adv)" : `${nv} (Falla)`;
+    }
     if (s.unidad === "0/1") return s.valor === null ? "—" : (Number(s.valor) >= 0.5 ? "Activa" : "Inactiva");
     const abs = Math.abs(Number(s.valor));
     return numero(s.valor, abs >= 1000 ? 0 : abs >= 100 ? 1 : 2);
@@ -255,7 +261,7 @@
       itemStyle: { color: (ESTADOS[est] || { color: C.tenue }).color },
       encode: { x: [0, 1], y: 2 },
       data: hist.filter((h) => h.estado === est).map((h) => [
-        new Date(h.inicio).getTime(), new Date(h.fin).getTime() + 60000, 0, h.minutos, h.tipo_asfalto]),
+        new Date(h.inicio).getTime(), new Date(h.fin).getTime() + 60000, 0, (h.minutos ?? Math.max(1, Math.round((new Date(h.fin) - new Date(h.inicio)) / 60000))), h.tipo_asfalto]),
       renderItem: (params, api) => {
         const ini = api.coord([api.value(0), 0]); const fin = api.coord([api.value(1), 0]);
         const alto = 18;
@@ -648,15 +654,16 @@
 
   async function conectarMqttAwsIot() {
     try {
-      if (!window.Paho || !window.Paho.MQTT) return;
+      const PahoClient = window.Paho && (window.Paho.Client || (window.Paho.MQTT && window.Paho.MQTT.Client));
+      if (!PahoClient) { console.warn("Libreria Paho MQTT no disponible"); return; }
       const cfg = await api("/iot/ws-url");
-      if (!cfg || !cfg.disponible || !cfg.url) return;
+      if (!cfg || !cfg.disponible || !cfg.url) { console.warn("AWS IoT WS no disponible: el backend no encontro credenciales AWS (boto3 / ~/.aws/credentials)."); return; }
 
       const urlObj = new URL(cfg.url);
       const host = urlObj.hostname;
       const path = urlObj.pathname + urlObj.search;
       const clientId = "qla_dash_" + Math.random().toString(16).slice(2, 10);
-      const client = new Paho.MQTT.Client(host, 443, path, clientId);
+      const client = new PahoClient(host, 443, path, clientId);
 
       client.onMessageArrived = (msg) => {
         try {
@@ -686,7 +693,10 @@
   function procesarEventoMqtt(topic, payload) {
     if (topic.endsWith("/telemetria")) {
       const lectura = payload.lectura_actual || payload;
-      const ts = payload.timestamp ? new Date(payload.timestamp * 1000) : new Date();
+      const rawTs = payload.timestamp ?? lectura.timestamp;
+      const numTs = Number(rawTs);
+      const tsParsed = !rawTs ? new Date() : (!Number.isNaN(numTs) && String(rawTs).trim() !== "" ? new Date(numTs < 1e12 ? numTs * 1000 : numTs) : new Date(rawTs));
+      const ts = Number.isNaN(tsParsed.getTime()) ? new Date() : tsParsed;
       estado.ultima = ts.toISOString();
       $("cab-lectura").textContent = "Última lectura " + fechaHora(estado.ultima);
       $("ind-hora").textContent = fmtHora.format(ts);
@@ -697,6 +707,11 @@
         if (chip) chip.replaceChildren(el("span", { clase: "punto", style: `background:${est.color}` }), est.texto);
         const indEstado = $("ind-estado");
         if (indEstado) indEstado.textContent = est.texto;
+      }
+      const rawAsfalto = lectura.TIPO_asfalto || payload.TIPO_asfalto || (lectura.es_plastomerico === 1 ? "plastomerico" : null);
+      if (rawAsfalto) {
+        const indAsf = $("ind-asfalto");
+        if (indAsf) indAsf.textContent = ASFALTO[String(rawAsfalto).toLowerCase()] || rawAsfalto;
       }
       if (estado.lecturasActuales) {
         let fueras = 0;
@@ -715,7 +730,47 @@
         }
       }
     } else if (topic.endsWith("/predicciones")) {
+      const tituloFalla = (cod) => {
+        if (!cod || cod === "Normal") return "Operación normal";
+        const f = (estado.tiposFalla || []).find((x) => x.codigo === cod);
+        return f ? f.titulo : String(cod).replaceAll("_", " ");
+      };
       if (payload.alerta_activa) {
+        toast(`⚠️ Alerta predictiva: ${tituloFalla(payload.falla)} (Riesgo 24h: ${((Number(payload.riesgo_24h) || 0) * 100).toFixed(1)}%)`, "error");
+      }
+      const tsIso = new Date().toISOString();
+      if (!Array.isArray(estado.prediccionesActuales) || !estado.prediccionesActuales.length) {
+        estado.prediccionesActuales = [
+          { horizonte: "24h", modelo: "predictivo", prob_falla: 0, falla: "Normal", titulo: "Operación normal", indice_salud: 96.0, vida_util_horas: null, ts: tsIso },
+          { horizonte: "5d", modelo: "predictivo", prob_falla: 0, falla: "Normal", titulo: "Operación normal", indice_salud: 92.0, vida_util_horas: null, ts: tsIso },
+          { horizonte: "15d", modelo: "predictivo", prob_falla: 0, falla: "Normal", titulo: "Operación normal", indice_salud: 88.0, vida_util_horas: null, ts: tsIso },
+        ];
+      }
+      [
+        { hz: "24h", probKey: "riesgo_24h", fallaKey: "falla_24h" },
+        { hz: "5d", probKey: "riesgo_5d", fallaKey: "falla_5d" },
+        { hz: "15d", probKey: "riesgo_15d", fallaKey: "falla_15d" },
+      ].forEach(({ hz, probKey, fallaKey }) => {
+        if (payload[probKey] !== undefined) {
+          let item = estado.prediccionesActuales.find((p) => p.horizonte === hz);
+          if (!item) {
+            item = { horizonte: hz, modelo: "predictivo", vida_util_horas: null };
+            estado.prediccionesActuales.push(item);
+          }
+          const probVal = Number(payload[probKey]) || 0;
+          const codFalla = payload[fallaKey] || (probVal >= 0.25 ? payload.falla : "Normal") || "Normal";
+          item.prob_falla = probVal;
+          item.falla = codFalla;
+          item.titulo = tituloFalla(codFalla);
+          item.indice_salud = payload.indice_salud !== undefined ? Number(payload.indice_salud) : Math.max(0, Math.round((1 - probVal) * 100));
+          item.ts = tsIso;
+        }
+      });
+      if (estado.vista === "panel" && estado.prediccionesActuales) {
+        pintarPredicciones(estado.prediccionesActuales);
+      }
+      return;
+      if (false && payload.alerta_activa) {
         toast(`⚠️ Alerta predictiva: Posible falla ${payload.falla || 'detectada'} (Riesgo 24h: ${((payload.riesgo_24h || 0) * 100).toFixed(1)}%)`, "error");
       }
       if (estado.prediccionesActuales && payload.riesgo_24h !== undefined) {

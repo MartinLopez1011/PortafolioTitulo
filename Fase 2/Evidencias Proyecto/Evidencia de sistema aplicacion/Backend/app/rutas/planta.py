@@ -116,7 +116,8 @@ def lecturas_serie(
             for h in range(24, 0, -2):
                 pt_t = ahora - dt.timedelta(hours=h)
                 pts.append({"t": pt_t, "prom": round(base, 2), "min": round(base * 0.98, 2), "max": round(base * 1.02, 2)})
-            series.append({"tag": t, "unidad": "", "puntos": pts})
+            unidad_tag = next((s["unidad"] for s in demo_store.SENSORES if s["tag"] == t), "")
+            series.append({"tag": t, "unidad": unidad_tag, "puntos": pts})
         return {"desde": ahora - dt.timedelta(hours=24), "hasta": ahora, "paso": paso, "series": series}
 
     lista = [t.strip() for t in tags.split(",") if t.strip()]
@@ -410,18 +411,61 @@ async def ws_telemetria(websocket: WebSocket):
         _clientes_ws.discard(websocket)
 
 
-@router.post("/telemetria", summary="Ingesta de telemetría en vivo (Edge Simulator)")
+class Lectura31Molino(BaseModel):
+    """Esquema validado de las 31 variables de entrada comunes a los Modelos 1, 2 y 3."""
+    ESTADO_operacion: str = "Produccion"
+    TIPO_asfalto: str = "Convencional"
+    TEM_son_betum_in: float = 134.7
+    RES_son_betum_in: float = 151.86
+    VOLT_son_betum_in: float = 23.76
+    AMP_son_betum_in: float = 12.62
+    AMP_cau_betum_in: float = 12.3
+    FRE_cau_betum_in: float = 249.5
+    AMP_eco_betum_dep: float = 52.33
+    EST_niv_betum_dep: float = 0.0
+    TEM_son_solucion_in: float = 36.4
+    RES_son_solucion_in: float = 114.01
+    AMP_son_solucion_in: float = 9.82
+    AMP_cau_solucion_in: float = 13.31
+    FRE_cau_solucion_in: float = 400.0
+    AMP_eco_solucion_dep: float = 70.0
+    TEM_son_emulsion_out: float = 72.5
+    RES_son_emulsion_out: float = 127.91
+    AMP_cau_emulsion_out: float = 14.44
+    FRE_cau_emulsion_out: float = 322.7
+    AMP_eco_emulsion_dep: float = 60.0
+    RPM_motor_molino: float = 2898.0
+    FRE_vfd_motor_molino: float = 50.0
+    AMP_vfd_motor_molino: float = 105.7
+    TOR_vfd_motor_molino: float = 71.7
+    VIB_vel_motor_molino: float = 2.47
+    AMP_vib_motor_molino: float = 5.58
+    CAU_bomba_lpm: float = 180.6
+    PRE_dif_filtro_bar: float = 0.42
+    TEM_emulsion_molino_out: float = 73.5
+    PRE_intercambiador_bar: float = 0.0
+    es_plastomerico: int | None = None
+    en_limpieza: int | None = None
+
+
+@router.post("/telemetria", summary="Ingesta de telemetría en vivo (31 variables de entrada)")
 async def ingesta_telemetria(datos: dict):
-    """Recibe telemetría desde el simulador de planta o Edge Gateway y la distribuye en vivo."""
+    """Recibe telemetría desde el simulador de planta o Edge Gateway, arregla las 31 variables y las distribuye en vivo."""
     from .. import demo_store
-    lectura = datos.get("lectura_actual") or datos
-    if isinstance(lectura, dict):
-        for k, v in lectura.items():
-            if k in demo_store.VALORES_INICIALES:
-                try:
-                    demo_store.VALORES_INICIALES[k] = float(v)
-                except (ValueError, TypeError):
-                    pass
+    lectura_raw = datos.get("lectura_actual") or datos
+    lectura_validada = Lectura31Molino(**(lectura_raw if isinstance(lectura_raw, dict) else {}))
+    lectura = lectura_validada.model_dump()
+    if lectura["es_plastomerico"] is None:
+        lectura["es_plastomerico"] = int(lectura["TIPO_asfalto"].lower().startswith("plasto"))
+    if lectura["en_limpieza"] is None:
+        lectura["en_limpieza"] = int(lectura["ESTADO_operacion"].lower() == "limpieza")
+
+    for k, v in lectura.items():
+        if k in demo_store.VALORES_INICIALES:
+            try:
+                demo_store.VALORES_INICIALES[k] = float(v) if k not in ("es_plastomerico", "en_limpieza") else int(v)
+            except (ValueError, TypeError):
+                pass
     
     # Broadcast a navegadores conectados
     await emitir_telemetria_en_vivo({
@@ -430,4 +474,4 @@ async def ingesta_telemetria(datos: dict):
         "equipo_id": datos.get("equipo_id", "MOLINO_QLA_01"),
         "lectura_actual": lectura
     })
-    return {"status": "ok", "clientes_activos": len(_clientes_ws)}
+    return {"status": "ok", "variables_31": len(demo_store.FEATURES_31_MODELOS), "clientes_activos": len(_clientes_ws)}

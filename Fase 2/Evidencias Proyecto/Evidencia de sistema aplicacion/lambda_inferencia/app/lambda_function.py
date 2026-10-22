@@ -11,7 +11,7 @@ import pandas as pd
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Variable global para motor de inferencia (lazy-loading en warm-start)
+# Variable global para motor de inferencia (pre-cargado en fase INIT / Warm Start de AWS Lambda)
 engine = None
 
 
@@ -19,7 +19,7 @@ def get_engine():
     global engine
     if engine is None:
         try:
-            logger.info("Cargando motor de inferencia...")
+            logger.info("Cargando motor de inferencia en memoria global (Warm Start)...")
             from app.inference_engine import MolinoInferenceEngine
             engine = MolinoInferenceEngine()
             logger.info("Motor de inferencia cargado exitosamente.")
@@ -27,6 +27,10 @@ def get_engine():
             logger.error(f"Error inicializando modelos de inferencia: {e}", exc_info=True)
             engine = None
     return engine
+
+
+# Pre-cargar modelos en el scope global durante el arranque del contenedor
+get_engine()
 
 # Cliente DynamoDB
 DYNAMODB_TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "QLA_Molino_Telemetria")
@@ -65,8 +69,8 @@ def obtener_bitacora(equipo_id: str) -> dict:
 
 def actualizar_ventana_168h(nueva_lectura: dict) -> pd.DataFrame:
     """
-    Lee las últimas horas, añade la nueva lectura y guarda el parquet con un máximo de 168 filas.
-    Tiempo de ejecución típico: ~90-140ms
+    Lee las últimas 168 horas desde S3, consolida a resolución de 1 minuto para evitar que
+    ráfagas sub-minuto sobrescriban la ventana de 7 días, y persiste el Parquet actualizado.
     """
     df_nuevo = pd.DataFrame([nueva_lectura])
     df_completo = df_nuevo
@@ -81,8 +85,25 @@ def actualizar_ventana_168h(nueva_lectura: dict) -> pd.DataFrame:
         logger.info(f"Iniciando nueva ventana activa en S3 ({e})")
         df_completo = df_nuevo
 
-    # 2. Conservar solo las últimas 168 filas (7 días a razón de 1 fila horaria)
-    df_ventana = df_completo.tail(168)
+    # 2. Normalizar timestamp epoch y consolidar duplicados dentro del mismo minuto
+    try:
+        ts_num = pd.to_numeric(df_completo["timestamp"], errors="coerce")
+        if ts_num.isna().any():
+            ts_parsed = pd.to_datetime(df_completo["timestamp"], utc=True, errors="coerce")
+            ts_num = ts_num.fillna((ts_parsed.astype("int64") // 10**9).astype(float))
+        df_completo["timestamp"] = ts_num.fillna(int(time.time())).astype(int)
+        df_completo["_min_bucket"] = df_completo["timestamp"] // 60
+        df_completo = (
+            df_completo.sort_values("timestamp")
+            .drop_duplicates(subset=["_min_bucket"], keep="last")
+            .drop(columns=["_min_bucket"])
+        )
+        max_ts = int(df_completo["timestamp"].max())
+        corte_168h = max_ts - (168 * 3600)
+        df_ventana = df_completo[df_completo["timestamp"] >= corte_168h].tail(10080).reset_index(drop=True)
+    except Exception as e_norm:
+        logger.warning(f"Fallback en poda de ventana 168h: {e_norm}")
+        df_ventana = df_completo.tail(10080).reset_index(drop=True)
 
     # 3. Sobrescribir el parquet en S3 usando boto3
     try:
@@ -128,40 +149,56 @@ def lambda_handler(event, context):
             elif isinstance(event["body"], dict):
                 event = event["body"]
 
-        # Extraer lectura actual
-        lectura = event.get("lectura_actual", event)
-        equipo_id = event.get("equipo_id", "MOLINO_QLA_01")
-        timestamp = int(event.get("timestamp", time.time()))
+        # Extraer lectura actual y arreglarla al contrato canónico de 31 variables de entrada
+        lectura_cruda = event.get("lectura_actual", event)
+        if not isinstance(lectura_cruda, dict):
+            lectura_cruda = dict(event)
+        else:
+            lectura_cruda = dict(lectura_cruda)
+            for k_meta in ("timestamp", "equipo_id", "ESTADO_operacion", "TIPO_asfalto", "es_plastomerico", "en_limpieza"):
+                if k_meta in event and k_meta not in lectura_cruda:
+                    lectura_cruda[k_meta] = event[k_meta]
 
-        # 1. Ejecutar Inferencia de Diagnóstico y Vigilancia (Tiempo Real)
-        resultado_inferencia = eng.ejecutar_tiempo_real(lectura)
+        equipo_id = str(event.get("equipo_id") or lectura_cruda.get("equipo_id") or "MOLINO_QLA_01")
+        timestamp = eng._normalizar_timestamp_epoch(event.get("timestamp", lectura_cruda.get("timestamp")))
+        lectura_cruda["timestamp"] = timestamp
 
-        # 2. Mantener ventana activa de 168 horas y consultar bitácora en S3
+        # 0. Normalizar siempre a las 31 variables de entrada (29 sensores + es_plastomerico + en_limpieza)
+        lectura_31 = eng.Normalizar_Entrada_31(lectura_cruda)
+
+        # 1. Ejecutar Inferencia de Diagnóstico (Modelo 1) y Vigilancia (Modelo 2) con las 31 variables
+        resultado_inferencia = eng.ejecutar_tiempo_real(lectura_31)
+
+        # 2. Mantener ventana activa en S3 con las 31 variables y consultar bitácora
+        df_ventana_31 = pd.DataFrame([lectura_31])
+        bitacora_equipo = {}
         try:
-            df_ventana = actualizar_ventana_168h(lectura)
+            df_ventana_31 = actualizar_ventana_168h(lectura_31)
             bitacora_equipo = obtener_bitacora(equipo_id)
             resultado_inferencia["estado_equipos_s3"] = bitacora_equipo
-            logger.info(f"Ventana activa en S3 actualizada ({len(df_ventana)} registros).")
+            logger.info(f"Ventana activa de 31 variables en S3 actualizada ({len(df_ventana_31)} registros).")
         except Exception as e_s3:
             logger.warning(f"Advertencia al gestionar ventana activa/bitácora en S3: {e_s3}")
 
-        # 3. Si vienen features para modelos predictivos (80 features), ejecutarlos también
-        if "features_predictivo" in event or all(col in lectura for col in eng.features_80):
-            try:
-                features_pred = event.get("features_predictivo", lectura)
-                resultado_predictivo = eng.ejecutar_predictivo(features_pred)
-                resultado_inferencia["predictivo"] = resultado_predictivo
-            except Exception as e_pred:
-                logger.warning(f"No se pudo ejecutar módulo predictivo tabular: {e_pred}")
+        # 3. Ejecutar Modelo 3 (Predictivo): refactoriza las 31 variables de entrada -> 11 base -> 80 tabulares
+        try:
+            if "features_predictivo" in event:
+                resultado_predictivo = eng.ejecutar_predictivo(event["features_predictivo"], bitacora_equipo)
+            else:
+                resultado_predictivo = eng.ejecutar_predictivo_desde_31(df_ventana_31, bitacora_equipo)
+            resultado_inferencia["predictivo"] = resultado_predictivo
+        except Exception as e_pred:
+            logger.warning(f"No se pudo ejecutar módulo predictivo tabular (31->11->80): {e_pred}", exc_info=True)
 
-        # 4. Guardar telemetría e inferencia en DynamoDB
+        # 4. Guardar telemetría (31 variables) e inferencia en DynamoDB
         registro_dynamo = {
             "equipo_id": equipo_id,
             "timestamp": timestamp,
-            "lectura": lectura,
+            "lectura": lectura_31,
             "diagnostico": resultado_inferencia.get("diagnostico", {}),
             "vigilancia": resultado_inferencia.get("vigilancia_autoencoder", {}),
-            "estado_operacion": resultado_inferencia.get("estado_operacion", "Desconocido")
+            "predictivo": resultado_inferencia.get("predictivo", {}),
+            "estado_operacion": resultado_inferencia.get("estado_operacion", lectura_31.get("ESTADO_operacion", "Desconocido"))
         }
 
         try:
@@ -174,23 +211,57 @@ def lambda_handler(event, context):
         try:
             diag = resultado_inferencia.get("diagnostico", {})
             ae = resultado_inferencia.get("vigilancia_autoencoder", {})
-            alerta = diag.get("anomalia_confirmada", False) or ae.get("alerta_anomalia_nueva", False)
-
-            # Extraer probabilidades de horizontes predictivos si existen
-            prob_24h = 0.0
-            prob_5d = 0.0
-            prob_15d = 0.0
-
             predictivo = resultado_inferencia.get("predictivo", {})
-            for alerta_prev in predictivo.get("alertas_preventivas", []):
-                horiz = alerta_prev.get("horizonte", "")
-                p = float(alerta_prev.get("probabilidad", 0.0))
-                if "24" in horiz:
-                    prob_24h = max(prob_24h, p)
-                elif "5" in horiz:
-                    prob_5d = max(prob_5d, p)
-                elif "15" in horiz:
-                    prob_15d = max(prob_15d, p)
+            alertas_prev = predictivo.get("alertas_preventivas", [])
+
+            # Extraer probabilidades máximas y modo de falla dominante por horizonte
+            prob_24h, falla_24h = 0.0, "Normal"
+            prob_5d, falla_5d = 0.0, "Normal"
+            prob_15d, falla_15d = 0.0, "Normal"
+
+            for nombre_falla, info_falla in predictivo.get("pronosticos", {}).items():
+                for horiz, det in info_falla.get("horizontes", {}).items():
+                    p = float(det.get("probabilidad", 0.0))
+                    if "24" in horiz and p >= prob_24h:
+                        prob_24h = p
+                        if p > 0:
+                            falla_24h = nombre_falla
+                    elif "5" in horiz and p >= prob_5d:
+                        prob_5d = p
+                        if p > 0:
+                            falla_5d = nombre_falla
+                    elif "15" in horiz and p >= prob_15d:
+                        prob_15d = p
+                        if p > 0:
+                            falla_15d = nombre_falla
+
+            for alerta_p in alertas_prev:
+                horiz = alerta_p.get("horizonte", "")
+                p = float(alerta_p.get("probabilidad", 0.0))
+                f_cod = alerta_p.get("falla", "Normal")
+                if "24" in horiz and p >= prob_24h:
+                    prob_24h, falla_24h = p, f_cod
+                elif "5" in horiz and p >= prob_5d:
+                    prob_5d, falla_5d = p, f_cod
+                elif "15" in horiz and p >= prob_15d:
+                    prob_15d, falla_15d = p, f_cod
+
+            alerta = bool(
+                diag.get("anomalia_confirmada", False)
+                or ae.get("alerta_anomalia_nueva", False)
+                or len(alertas_prev) > 0
+            )
+
+            falla_principal = diag.get("falla", "Normal")
+            accion_principal = diag.get("accion")
+            if falla_principal == "Normal":
+                if alertas_prev:
+                    alerta_top = max(alertas_prev, key=lambda a: float(a.get("probabilidad", 0.0)))
+                    falla_principal = alerta_top.get("falla", "Normal")
+                    accion_principal = alerta_top.get("accion_recomendada")
+                elif ae.get("alerta_anomalia_nueva", False):
+                    falla_principal = "Desviacion_Multivariante_Autoencoder"
+                    accion_principal = "Inspeccionar sensores con mayor error cuadrático en vigilancia Autoencoder."
 
             payload_salida = {
                 "equipo_id": equipo_id,
@@ -198,9 +269,16 @@ def lambda_handler(event, context):
                 "riesgo_24h": round(prob_24h, 4),
                 "riesgo_5d": round(prob_5d, 4),
                 "riesgo_15d": round(prob_15d, 4),
-                "alerta_activa": bool(alerta),
-                "falla": diag.get("falla", "Normal"),
-                "estado_operacion": resultado_inferencia.get("estado_operacion", "Desconocido")
+                "falla_24h": falla_24h,
+                "falla_5d": falla_5d,
+                "falla_15d": falla_15d,
+                "alerta_activa": alerta,
+                "falla": falla_principal,
+                "accion_recomendada": accion_principal or "Operación dentro de parámetros nominales.",
+                "mse_autoencoder": ae.get("mse", 0.0),
+                "indice_salud": round(max(0.0, 100.0 - min(100.0, float(ae.get("indice_salud_ratio", 0.0)) * 25.0)), 1),
+                "estado_operacion": resultado_inferencia.get("estado_operacion", lectura_31.get("ESTADO_operacion", "Produccion")),
+                "tipo_asfalto": resultado_inferencia.get("tipo_asfalto", lectura_31.get("TIPO_asfalto", "Convencional")),
             }
 
             iot_client.publish(

@@ -56,14 +56,15 @@ def generar_iot_websocket_url(region: str = AWS_REGION, endpoint: str = IOT_ENDP
         credential_scope = f"{date}/{region}/{service}/aws4_request"
 
         canonical_uri = "/mqtt"
+        # IMPORTANTE (AWS IoT Core SigV4 over WebSockets):
+        # X-Amz-Security-Token NO se incluye dentro de canonical_querystring antes de firmar;
+        # debe concatenarse DESPUÉS de X-Amz-Signature para evitar 403 Forbidden con credenciales STS (LabRole).
         query_params = {
             "X-Amz-Algorithm": algorithm,
             "X-Amz-Credential": f"{ak}/{credential_scope}",
             "X-Amz-Date": amz_date,
             "X-Amz-SignedHeaders": "host",
         }
-        if token:
-            query_params["X-Amz-Security-Token"] = token
 
         sorted_params = sorted(query_params.items())
         canonical_querystring = "&".join(
@@ -86,7 +87,10 @@ def generar_iot_websocket_url(region: str = AWS_REGION, endpoint: str = IOT_ENDP
 
         signature = hmac.new(k_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
 
-        return f"wss://{endpoint}{canonical_uri}?{canonical_querystring}&X-Amz-Signature={signature}"
+        url_firmada = f"wss://{endpoint}{canonical_uri}?{canonical_querystring}&X-Amz-Signature={signature}"
+        if token:
+            url_firmada += f"&X-Amz-Security-Token={urllib.parse.quote(token, safe='')}"
+        return url_firmada
     except Exception as e:
         logger.error(f"Error generando URL WebSocket pre-firmada para AWS IoT: {e}", exc_info=True)
         return None

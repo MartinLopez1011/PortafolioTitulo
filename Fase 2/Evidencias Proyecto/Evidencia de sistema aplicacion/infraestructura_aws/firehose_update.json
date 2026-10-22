@@ -1,5 +1,5 @@
 {
-    "RoleARN": "arn:aws:iam::441381011844:role/LabRole",
+    "RoleARN": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/LabRole",
     "BucketARN": "arn:aws:s3:::backup-planta-asfalto-molino-ml",
     "Prefix": "historico/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/",
     "ErrorOutputPrefix": "historico-errores/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/!{firehose:error-output-type}/",
@@ -16,7 +16,7 @@
     "DataFormatConversionConfiguration": {
         "Enabled": true,
         "SchemaConfiguration": {
-            "RoleARN": "arn:aws:iam::441381011844:role/LabRole",
+            "RoleARN": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/LabRole",
             "DatabaseName": "qla_planta_asfalto",
             "TableName": "telemetria_molino",
             "Region": "us-east-1",

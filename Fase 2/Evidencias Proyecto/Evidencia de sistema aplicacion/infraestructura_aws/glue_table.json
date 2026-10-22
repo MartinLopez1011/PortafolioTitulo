@@ -35,7 +35,9 @@
             {"Name": "CAU_bomba_lpm", "Type": "double"},
             {"Name": "PRE_dif_filtro_bar", "Type": "double"},
             {"Name": "TEM_emulsion_molino_out", "Type": "double"},
-            {"Name": "PRE_intercambiador_bar", "Type": "double"}
+            {"Name": "PRE_intercambiador_bar", "Type": "double"},
+            {"Name": "es_plastomerico", "Type": "int"},
+            {"Name": "en_limpieza", "Type": "int"}
         ],
         "Location": "s3://backup-planta-asfalto-molino-ml/historico/",
         "InputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",

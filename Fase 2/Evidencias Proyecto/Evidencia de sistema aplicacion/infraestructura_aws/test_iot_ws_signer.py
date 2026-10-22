@@ -24,8 +24,6 @@ def get_iot_websocket_url(region="us-east-1", endpoint="a2ep4ljpgw7df7-ats.iot.u
         'X-Amz-Date': amz_date,
         'X-Amz-SignedHeaders': 'host'
     }
-    if creds.token:
-        query_params['X-Amz-Security-Token'] = creds.token
         
     sorted_params = sorted(query_params.items())
     canonical_querystring = '&'.join([f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(v, safe='')}" for k, v in sorted_params])
@@ -47,6 +45,8 @@ def get_iot_websocket_url(region="us-east-1", endpoint="a2ep4ljpgw7df7-ats.iot.u
     signature = hmac.new(k_signing, string_to_sign.encode('utf-8'), hashlib.sha256).hexdigest()
     
     ws_url = f'wss://{endpoint}{canonical_uri}?{canonical_querystring}&X-Amz-Signature={signature}'
+    if creds.token:
+        ws_url += f"&X-Amz-Security-Token={urllib.parse.quote(creds.token, safe='')}"
     return ws_url
 
 if __name__ == '__main__':

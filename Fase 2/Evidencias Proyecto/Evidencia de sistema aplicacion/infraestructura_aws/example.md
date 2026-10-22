@@ -201,3 +201,161 @@ aws iot-data publish \
 1. **Ruta 1 (Cold Path)**: Genera archivo `.parquet` en `s3://backup-planta-asfalto-molino-ml/historico/year=2026/month=10/day=15/` en 60 segundos. Consulta exitosa con Athena.
 2. **Ruta 2 (ML Path)**: Lambda ejecuta la inferencia en ~80 ms, persiste en `QLA_Molino_Telemetria` y publica el diagnóstico en `planta/asfalto/molino/predicciones`.
 3. **Ruta 3 (Hot Path)**: El dashboard web recibe el evento instantáneamente por WebSocket y actualiza el panel sin recargar la página.
+
+---
+
+## 🔄 Adaptaciones para AWS Academy Learner Lab
+
+> **Contexto**: AWS Academy restringe los permisos IAM del rol `voclabs`. En particular, las credenciales STS de sesión temporales no pueden ser adjuntadas a políticas IoT personalizadas, lo que genera error `403 Forbidden` al intentar que el **navegador** establezca un WebSocket directo contra el broker de AWS IoT Core usando firmas SigV4.
+
+Las siguientes adaptaciones resuelven estas restricciones manteniendo la arquitectura de 3 rutas intacta en AWS.
+
+---
+
+### 🟡 Canal WebSocket Local (Puente Backend → Frontend)
+
+Se añadió un segundo canal de tiempo real **dentro del propio Backend FastAPI** para que el frontend reciba telemetría sin depender de credenciales SigV4 en el navegador.
+
+#### Nuevos endpoints en `Backend/app/rutas/planta.py`
+
+| Endpoint | Tipo | Descripción |
+|---|---|---|
+| `POST /api/telemetria` | HTTP REST | Recibe mensajes de telemetría desde el simulador local y los retransmite a todos los clientes WebSocket conectados |
+| `GET /api/ws/telemetria` | WebSocket | Canal en tiempo real que el frontend consume directamente |
+
+**Flujo del canal local:**
+```
+simular_telemetria_continua.py
+        |
+        ├── (1) AWS IoT Core MQTT → topic 'planta/asfalto/molino/telemetria'
+        |        ↓ Regla_S3_Historico_Molino → Firehose → S3
+        |        ↓ Regla_Inferencia_Molino → Lambda → DynamoDB
+        |
+        └── (2) POST http://127.0.0.1:8000/api/telemetria
+                 ↓
+          FastAPI WebSocket Manager
+                 ↓
+          ws://127.0.0.1:8000/api/ws/telemetria
+                 ↓
+          Frontend Dashboard (app.js)
+                 ↓
+          Badge "● En vivo (MQTT)" + actualización de gráficos
+```
+
+#### Cambios en `Backend/web/js/app.js`
+El frontend intenta primero el canal local y muestra `● En vivo (MQTT)` cuando la conexión tiene éxito:
+```javascript
+// Prioridad 1: Canal WebSocket local del backend (sin restricciones IAM)
+const wsLocal = new WebSocket(`ws://${window.location.host}/api/ws/telemetria`);
+wsLocal.onmessage = (event) => {
+    const datos = JSON.parse(event.data);
+    actualizarSensores(datos);       // actualiza cards de sensores
+    actualizarGraficos(datos);       // push en gráficos Chart.js
+    setBadgeEnVivo();                // badge verde "En vivo (MQTT)"
+};
+```
+Si el WebSocket falla, el frontend cae automáticamente a **polling REST cada 60 segundos** (badge gris `Polling (60s)`).
+
+---
+
+### 🟢 Modo Demo (Sin Base de Datos)
+
+Para ejecutar el backend sin Supabase/PostgreSQL se implementó `MODO_DEMO`.
+
+#### Activación automática en `Backend/app/db.py`
+```python
+# Si DATABASE_URL no está configurada o la conexión falla → MODO_DEMO = True
+try:
+    pool = await asyncpg.create_pool(DATABASE_URL, ...)
+    MODO_DEMO = False
+except Exception:
+    MODO_DEMO = True   # Activa respuestas simuladas en todas las rutas
+```
+
+#### Datos en memoria: `Backend/app/demo_store.py`
+Provee datasets sintéticos listos para usar:
+- `EQUIPOS_DEMO`: 3 equipos (Molino Coloidal, Compresor Turbo, Bomba de Betún)
+- `SENSORES_DEMO`: 8 sensores con umbrales críticos/advertencia
+- `TIPOS_FALLA_DEMO`: 4 categorías de fallas clasificadas
+- `telemetria_reciente`: buffer circular con los últimos 50 eventos recibidos por WebSocket
+
+#### Rutas con soporte demo
+
+| Ruta | Respuesta en MODO_DEMO |
+|---|---|
+| `POST /api/auth/login` | Acepta `admin/admin` → JWT simulado |
+| `GET /api/sensores` | Devuelve `SENSORES_DEMO` |
+| `GET /api/resumen` | Estadísticas generadas dinámicamente |
+| `GET /api/lecturas/ultimas` | Últimas 10 lecturas del buffer circular |
+| `GET /api/predicciones/ultimas` | Predicciones ML simuladas |
+| `GET /api/salud` | `{"estado": "ok", "modo": "demo"}` |
+| `GET /api/usuarios` | Lista de usuarios de prueba |
+
+---
+
+### 🟠 Simulador de Telemetría Continua
+
+**Archivo**: `infraestructura_aws/simular_telemetria_continua.py`
+
+Publica datos sintéticos realistas en tiempo real por dos canales simultáneos:
+
+```powershell
+# Activar entorno virtual
+& "C:\Users\Soporte\Documents\Iot aws\venv\Scripts\python.exe" simular_telemetria_continua.py
+```
+
+**Parámetros de simulación:**
+- Intervalo: 5 segundos entre mensajes
+- Temperatura betún entrada: 155–175 °C (con variación gaussiana)
+- Amperaje VFD motor: 18–28 A
+- RPM motor: 1730–1790 RPM
+- Estado: `operando` / `advertencia` / `falla` (probabilístico)
+
+**Ejemplo de payload generado:**
+```json
+{
+  "equipo_id": "MOL-001",
+  "timestamp": 1792092604,
+  "estado_operacion": "operando",
+  "tipo_asfalto": "PG 64-22",
+  "tem_son_betum_in": 164.3,
+  "amp_vfd_motor_molino": 23.1,
+  "rpm_motor_molino": 1762,
+  "presion_descarga_bomba": 4.2,
+  "vibracion_carcasa_molino": 2.8
+}
+```
+
+---
+
+## 📋 Resumen de Archivos Modificados / Creados
+
+| Archivo | Cambio |
+|---|---|
+| `Backend/app/db.py` | Detección automática de `MODO_DEMO` si falla la conexión a Supabase |
+| `Backend/app/demo_store.py` | ✨ Nuevo — store en memoria con datos sintéticos para demo |
+| `Backend/app/rutas/auth.py` | Login demo con `admin/admin` cuando `MODO_DEMO=True` |
+| `Backend/app/rutas/planta.py` | Fallbacks demo + endpoints `/api/telemetria` (POST) y `/api/ws/telemetria` (WS) |
+| `Backend/app/rutas/usuarios.py` | Usuarios demo cuando `MODO_DEMO=True` |
+| `Backend/app/main.py` | `/api/salud` reporta modo demo en respuesta JSON |
+| `Backend/web/js/app.js` | Conexión WebSocket local en lugar de SigV4 directo a IoT Core |
+| `infraestructura_aws/simular_telemetria_continua.py` | ✨ Nuevo — simulador dual-canal (AWS IoT + backend local) |
+
+---
+
+## 🚀 Inicio Rápido (Entorno Local sin Supabase)
+
+```powershell
+# 1. Iniciar backend FastAPI (modo demo se activa automáticamente)
+cd "...\Backend"
+& "C:\Users\Soporte\Documents\Iot aws\venv\Scripts\python.exe" -m uvicorn app.main:app --reload
+
+# 2. Abrir dashboard en el navegador
+# http://127.0.0.1:8000
+# Login: admin / admin
+
+# 3. (Opcional) Lanzar simulador de telemetría en otra terminal
+cd "...\infraestructura_aws"
+& "C:\Users\Soporte\Documents\Iot aws\venv\Scripts\python.exe" simular_telemetria_continua.py
+# → El badge cambiará a "● En vivo (MQTT)" en el dashboard
+```
