@@ -69,6 +69,11 @@ def usuario_actual(cred: HTTPAuthorizationCredentials | None = Depends(_bearer))
         raise _no_autorizado("La sesión expiró; inicie sesión nuevamente")
     except jwt.InvalidTokenError:
         raise _no_autorizado("Token inválido")
+    from . import db
+    if db.MODO_DEMO:
+        from . import demo_store
+        return demo_store.USUARIOS.get("admin@demo.qla.cl")
+
     with cursor() as cur:
         cur.execute(
             """SELECT u.id, u.nombre, u.email, u.activo, u.debe_cambiar_clave, r.nombre AS rol, r.nivel

@@ -2,11 +2,12 @@
 import datetime as dt
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from .. import config
 from ..db import cursor
+from ..iot_ws import AWS_REGION, IOT_ENDPOINT, generar_iot_websocket_url
 from ..seguridad import OPERADOR, SUPERVISOR, VISUALIZADOR, auditar, ip_cliente, requiere_nivel
 
 router = APIRouter(tags=["Planta y dashboard"])
@@ -36,6 +37,10 @@ def _equipo_id(cur, codigo: str) -> int:
 # ---------------------------------------------------------------- catálogos
 @router.get("/equipos", summary="Equipos monitoreados")
 def equipos(u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.EQUIPOS
     with cursor() as cur:
         cur.execute("SELECT id, codigo, nombre, tipo, marca, modelo, potencia, ubicacion FROM mantpred.equipos ORDER BY codigo")
         return cur.fetchall()
@@ -43,6 +48,12 @@ def equipos(u: dict = Depends(lector)):
 
 @router.get("/sensores", summary="Catálogo de sensores")
 def sensores(equipo: str = config.EQUIPO_POR_DEFECTO, origen: Fuente | None = None, u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        from .. import demo_store
+        if origen:
+            return [s for s in demo_store.SENSORES if s.get("origen") == origen]
+        return demo_store.SENSORES
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         cur.execute(
@@ -56,6 +67,10 @@ def sensores(equipo: str = config.EQUIPO_POR_DEFECTO, origen: Fuente | None = No
 
 @router.get("/tipos-falla", summary="Catálogo de fallas que reconoce el modelo")
 def tipos_falla(u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.TIPOS_FALLA
     with cursor() as cur:
         cur.execute("SELECT id, codigo, titulo, componente, prioridad, accion FROM mantpred.tipos_falla ORDER BY id")
         return cur.fetchall()
@@ -65,6 +80,10 @@ def tipos_falla(u: dict = Depends(lector)):
 @router.get("/lecturas/ultimas", summary="Último valor de cada sensor (tarjetas en tiempo real)")
 def lecturas_ultimas(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                      u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_lecturas_demo()
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         cur.execute(
@@ -85,6 +104,22 @@ def lecturas_serie(
         paso: Literal["1min", "5min", "15min", "1h", "1d"] = "15min",
         fuente: Fuente = "simulado",
         u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        from .. import demo_store
+        lista = [t.strip() for t in tags.split(",") if t.strip()]
+        ahora = dt.datetime.now(dt.timezone.utc)
+        series = []
+        for t in lista:
+            base = float(demo_store.VALORES_INICIALES.get(t, 25.0))
+            pts = []
+            for h in range(24, 0, -2):
+                pt_t = ahora - dt.timedelta(hours=h)
+                pts.append({"t": pt_t, "prom": round(base, 2), "min": round(base * 0.98, 2), "max": round(base * 1.02, 2)})
+            unidad_tag = next((s["unidad"] for s in demo_store.SENSORES if s["tag"] == t), "")
+            series.append({"tag": t, "unidad": unidad_tag, "puntos": pts})
+        return {"desde": ahora - dt.timedelta(hours=24), "hasta": ahora, "paso": paso, "series": series}
+
     lista = [t.strip() for t in tags.split(",") if t.strip()]
     if not lista or len(lista) > 12:
         raise HTTPException(422, "Indique entre 1 y 12 tags")
@@ -126,6 +161,9 @@ def lecturas_serie(
 # ---------------------------------------------------------------- estado del equipo
 @router.get("/estado/actual", summary="Estado de operación más reciente")
 def estado_actual(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado", u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        return {"ts": dt.datetime.now(dt.timezone.utc).isoformat(), "estado": "produccion", "tipo_asfalto": "convencional"}
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         cur.execute(
@@ -138,6 +176,10 @@ def estado_actual(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "sim
 def estado_historial(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                      desde: dt.datetime | None = None, hasta: dt.datetime | None = None,
                      u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_historial_estado_demo()
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         if hasta is None:
@@ -156,7 +198,7 @@ def estado_historial(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "
                    WHERE equipo_id = %s AND fuente = %s AND ts BETWEEN %s AND %s),
                g AS (SELECT *, sum(cambio::int) OVER (ORDER BY ts) AS grupo FROM e)
                SELECT min(ts) AS inicio, max(ts) AS fin, estado, tipo_asfalto,
-                      count(*) AS minutos
+                       count(*) AS minutos
                FROM g GROUP BY grupo, estado, tipo_asfalto ORDER BY inicio""",
             (eq, fuente, desde, hasta))
         return cur.fetchall()
@@ -164,6 +206,13 @@ def estado_historial(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "
 
 @router.get("/resumen", summary="Indicadores para el encabezado del dashboard")
 def resumen(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado", u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        from .. import demo_store
+        r = demo_store.obtener_resumen_demo()
+        r["equipo"] = {"codigo": "MC-01", "nombre": "Molino coloidal HP 240"}
+        r["fuente"] = fuente
+        return r
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         cur.execute("SELECT codigo, nombre FROM mantpred.equipos WHERE id = %s", (eq,))
@@ -196,6 +245,9 @@ class Reconocimiento(BaseModel):
 @router.get("/alarmas", summary="Alarmas activas o recientes")
 def alarmas(activas: bool = True, limite: int = Query(100, ge=1, le=500), fuente: Fuente = "simulado",
             u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        return []
     with cursor() as cur:
         cur.execute(
             """SELECT a.id, e.codigo AS equipo, a.origen, a.severidad, a.inicio, a.fin, a.valor, a.fuente,
@@ -214,6 +266,9 @@ def alarmas(activas: bool = True, limite: int = Query(100, ge=1, le=500), fuente
 @router.post("/alarmas/{alarma_id}/reconocer", summary="Reconocer una alarma (operador o superior)")
 def reconocer(alarma_id: int, datos: Reconocimiento, request: Request,
               u: dict = Depends(requiere_nivel(OPERADOR))):
+    from .. import db
+    if db.MODO_DEMO:
+        return {"mensaje": "Alarma reconocida (modo demostración)"}
     with cursor() as cur:
         cur.execute(
             """UPDATE mantpred.alarmas SET reconocida_por = %s, reconocida_en = now(), comentario = %s
@@ -232,6 +287,10 @@ def reconocer(alarma_id: int, datos: Reconocimiento, request: Request,
 @router.get("/predicciones/ultimas", summary="Última predicción de cada modelo y horizonte")
 def predicciones_ultimas(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                          u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_predicciones_demo()
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         cur.execute(
@@ -258,6 +317,9 @@ class MantenimientoNuevo(BaseModel):
 @router.get("/mantenimientos", summary="Historial de mantenimientos")
 def mantenimientos(equipo: str = config.EQUIPO_POR_DEFECTO, limite: int = Query(100, ge=1, le=500),
                    u: dict = Depends(lector)):
+    from .. import db
+    if db.MODO_DEMO:
+        return []
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         cur.execute(
@@ -273,6 +335,9 @@ def mantenimientos(equipo: str = config.EQUIPO_POR_DEFECTO, limite: int = Query(
 @router.post("/mantenimientos", status_code=201, summary="Registrar un mantenimiento (supervisor o superior)")
 def crear_mantenimiento(datos: MantenimientoNuevo, request: Request, equipo: str = config.EQUIPO_POR_DEFECTO,
                         u: dict = Depends(requiere_nivel(SUPERVISOR))):
+    from .. import db
+    if db.MODO_DEMO:
+        return {"id": 1, "mensaje": "Mantenimiento registrado (modo demostración)"}
     if datos.fecha_fin and datos.fecha_fin < datos.fecha_inicio:
         raise HTTPException(422, "fecha_fin no puede ser anterior a fecha_inicio")
     with cursor() as cur:
@@ -293,3 +358,120 @@ def crear_mantenimiento(datos: MantenimientoNuevo, request: Request, equipo: str
         nuevo = cur.fetchone()["id"]
         auditar(cur, u["id"], u["email"], ip_cliente(request), "mantenimiento_registrado", f"id {nuevo}")
     return {"id": nuevo, "mensaje": "Mantenimiento registrado"}
+
+
+@router.get("/iot/ws-url", summary="URL pre-firmada WebSocket para conexión MQTT en tiempo real")
+def iot_ws_url(u: dict = Depends(lector)):
+    """Genera una URL pre-firmada SigV4 para conectar al broker AWS IoT Core via WebSockets."""
+    url = generar_iot_websocket_url()
+    return {
+        "disponible": bool(url),
+        "url": url,
+        "endpoint": IOT_ENDPOINT,
+        "region": AWS_REGION,
+        "topics": {
+            "telemetria": "planta/asfalto/molino/telemetria",
+            "predicciones": "planta/asfalto/molino/predicciones",
+        },
+    }
+
+
+_clientes_ws: set[WebSocket] = set()
+
+
+async def emitir_telemetria_en_vivo(payload: dict):
+    """Transmite telemetría en tiempo real a todos los navegadores conectados."""
+    muertos = []
+    for ws in list(_clientes_ws):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            muertos.append(ws)
+    for ws in muertos:
+        _clientes_ws.discard(ws)
+
+
+@router.websocket("/ws/telemetria")
+async def ws_telemetria(websocket: WebSocket):
+    await websocket.accept()
+    _clientes_ws.add(websocket)
+    try:
+        from .. import demo_store
+        await websocket.send_json({
+            "topic": "planta/asfalto/molino/telemetria",
+            "tipo": "bienvenida",
+            "timestamp": int(dt.datetime.now(dt.timezone.utc).timestamp()),
+            "lectura_actual": demo_store.VALORES_INICIALES
+        })
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _clientes_ws.discard(websocket)
+
+
+class Lectura31Molino(BaseModel):
+    """Esquema validado de las 31 variables de entrada comunes a los Modelos 1, 2 y 3."""
+    ESTADO_operacion: str = "Produccion"
+    TIPO_asfalto: str = "Convencional"
+    TEM_son_betum_in: float = 134.7
+    RES_son_betum_in: float = 151.86
+    VOLT_son_betum_in: float = 23.76
+    AMP_son_betum_in: float = 12.62
+    AMP_cau_betum_in: float = 12.3
+    FRE_cau_betum_in: float = 249.5
+    AMP_eco_betum_dep: float = 52.33
+    EST_niv_betum_dep: float = 0.0
+    TEM_son_solucion_in: float = 36.4
+    RES_son_solucion_in: float = 114.01
+    AMP_son_solucion_in: float = 9.82
+    AMP_cau_solucion_in: float = 13.31
+    FRE_cau_solucion_in: float = 400.0
+    AMP_eco_solucion_dep: float = 70.0
+    TEM_son_emulsion_out: float = 72.5
+    RES_son_emulsion_out: float = 127.91
+    AMP_cau_emulsion_out: float = 14.44
+    FRE_cau_emulsion_out: float = 322.7
+    AMP_eco_emulsion_dep: float = 60.0
+    RPM_motor_molino: float = 2898.0
+    FRE_vfd_motor_molino: float = 50.0
+    AMP_vfd_motor_molino: float = 105.7
+    TOR_vfd_motor_molino: float = 71.7
+    VIB_vel_motor_molino: float = 2.47
+    AMP_vib_motor_molino: float = 5.58
+    CAU_bomba_lpm: float = 180.6
+    PRE_dif_filtro_bar: float = 0.42
+    TEM_emulsion_molino_out: float = 73.5
+    PRE_intercambiador_bar: float = 0.0
+    es_plastomerico: int | None = None
+    en_limpieza: int | None = None
+
+
+@router.post("/telemetria", summary="Ingesta de telemetría en vivo (31 variables de entrada)")
+async def ingesta_telemetria(datos: dict):
+    """Recibe telemetría desde el simulador de planta o Edge Gateway, arregla las 31 variables y las distribuye en vivo."""
+    from .. import demo_store
+    lectura_raw = datos.get("lectura_actual") or datos
+    lectura_validada = Lectura31Molino(**(lectura_raw if isinstance(lectura_raw, dict) else {}))
+    lectura = lectura_validada.model_dump()
+    if lectura["es_plastomerico"] is None:
+        lectura["es_plastomerico"] = int(lectura["TIPO_asfalto"].lower().startswith("plasto"))
+    if lectura["en_limpieza"] is None:
+        lectura["en_limpieza"] = int(lectura["ESTADO_operacion"].lower() == "limpieza")
+
+    for k, v in lectura.items():
+        if k in demo_store.VALORES_INICIALES:
+            try:
+                demo_store.VALORES_INICIALES[k] = float(v) if k not in ("es_plastomerico", "en_limpieza") else int(v)
+            except (ValueError, TypeError):
+                pass
+    
+    # Broadcast a navegadores conectados
+    await emitir_telemetria_en_vivo({
+        "topic": "planta/asfalto/molino/telemetria",
+        "timestamp": datos.get("timestamp", int(dt.datetime.now(dt.timezone.utc).timestamp())),
+        "equipo_id": datos.get("equipo_id", "MOLINO_QLA_01"),
+        "lectura_actual": lectura
+    })
+    return {"status": "ok", "variables_31": len(demo_store.FEATURES_31_MODELOS), "clientes_activos": len(_clientes_ws)}

@@ -1,0 +1,75 @@
+{
+    "Name": "telemetria_molino",
+    "Description": "Tabla de telemetria del molino coloidal QLA particionada por fecha con Partition Projection",
+    "StorageDescriptor": {
+        "Columns": [
+            {"Name": "equipo_id", "Type": "string"},
+            {"Name": "timestamp", "Type": "bigint"},
+            {"Name": "ESTADO_operacion", "Type": "string"},
+            {"Name": "TIPO_asfalto", "Type": "string"},
+            {"Name": "TEM_son_betum_in", "Type": "double"},
+            {"Name": "RES_son_betum_in", "Type": "double"},
+            {"Name": "VOLT_son_betum_in", "Type": "double"},
+            {"Name": "AMP_son_betum_in", "Type": "double"},
+            {"Name": "AMP_cau_betum_in", "Type": "double"},
+            {"Name": "FRE_cau_betum_in", "Type": "double"},
+            {"Name": "AMP_eco_betum_dep", "Type": "double"},
+            {"Name": "EST_niv_betum_dep", "Type": "double"},
+            {"Name": "TEM_son_solucion_in", "Type": "double"},
+            {"Name": "RES_son_solucion_in", "Type": "double"},
+            {"Name": "AMP_son_solucion_in", "Type": "double"},
+            {"Name": "AMP_cau_solucion_in", "Type": "double"},
+            {"Name": "FRE_cau_solucion_in", "Type": "double"},
+            {"Name": "AMP_eco_solucion_dep", "Type": "double"},
+            {"Name": "TEM_son_emulsion_out", "Type": "double"},
+            {"Name": "RES_son_emulsion_out", "Type": "double"},
+            {"Name": "AMP_cau_emulsion_out", "Type": "double"},
+            {"Name": "FRE_cau_emulsion_out", "Type": "double"},
+            {"Name": "AMP_eco_emulsion_dep", "Type": "double"},
+            {"Name": "RPM_motor_molino", "Type": "double"},
+            {"Name": "FRE_vfd_motor_molino", "Type": "double"},
+            {"Name": "AMP_vfd_motor_molino", "Type": "double"},
+            {"Name": "TOR_vfd_motor_molino", "Type": "double"},
+            {"Name": "VIB_vel_motor_molino", "Type": "double"},
+            {"Name": "AMP_vib_motor_molino", "Type": "double"},
+            {"Name": "CAU_bomba_lpm", "Type": "double"},
+            {"Name": "PRE_dif_filtro_bar", "Type": "double"},
+            {"Name": "TEM_emulsion_molino_out", "Type": "double"},
+            {"Name": "PRE_intercambiador_bar", "Type": "double"},
+            {"Name": "es_plastomerico", "Type": "int"},
+            {"Name": "en_limpieza", "Type": "int"}
+        ],
+        "Location": "s3://backup-planta-asfalto-molino-ml/historico/",
+        "InputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+        "OutputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
+        "Compressed": false,
+        "NumberOfBuckets": -1,
+        "SerdeInfo": {
+            "SerializationLibrary": "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
+            "Parameters": {
+                "serialization.format": "1"
+            }
+        }
+    },
+    "PartitionKeys": [
+        {"Name": "year", "Type": "string"},
+        {"Name": "month", "Type": "string"},
+        {"Name": "day", "Type": "string"}
+    ],
+    "TableType": "EXTERNAL_TABLE",
+    "Parameters": {
+        "classification": "parquet",
+        "compressionType": "none",
+        "typeOfData": "file",
+        "projection.enabled": "true",
+        "projection.year.type": "integer",
+        "projection.year.range": "2024,2030",
+        "projection.month.type": "integer",
+        "projection.month.range": "1,12",
+        "projection.month.digits": "2",
+        "projection.day.type": "integer",
+        "projection.day.range": "1,31",
+        "projection.day.digits": "2",
+        "storage.location.template": "s3://backup-planta-asfalto-molino-ml/historico/year=${year}/month=${month}/day=${day}/"
+    }
+}

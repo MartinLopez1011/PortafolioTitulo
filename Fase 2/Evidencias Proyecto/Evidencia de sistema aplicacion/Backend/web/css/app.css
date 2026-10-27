@@ -109,8 +109,17 @@ select.compacto { padding: 5px 8px; }
 .cabecera .marca span { color: var(--tenue); font-size: .85rem; }
 .cabecera .estado { display: flex; align-items: center; gap: 18px; margin-left: auto; flex-wrap: wrap; }
 .chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 999px;
-        background: var(--panel-2); border: 1px solid var(--linea); font-size: .88rem; white-space: nowrap; }
+        background: var(--panel-2); border: 1px solid var(--linea); font-size: .88rem; white-space: nowrap; transition: all .25s ease; }
 .chip .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--tenue); }
+.chip.en-vivo { border-color: rgba(12, 163, 12, .45); background: rgba(12, 163, 12, .12); color: #8ee89e; }
+.chip.en-vivo .punto { background: #16c82b; box-shadow: 0 0 8px #16c82b; animation: pulso-en-vivo 1.8s infinite ease-in-out; }
+.chip.offline { border-color: rgba(201, 133, 0, .35); background: rgba(201, 133, 0, .09); color: #f2bf64; }
+.chip.offline .punto { background: #c98500; }
+@keyframes pulso-en-vivo {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.35); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
 .usuario { display: flex; align-items: center; gap: 10px; font-size: .9rem; }
 .usuario .rol { color: var(--tenue); }
 

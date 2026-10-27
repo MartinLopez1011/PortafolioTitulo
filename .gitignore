@@ -1,0 +1,17 @@
+#Markdown IA
+.antigravity
+.AGENTS.md
+
+# Certificados y llaves privadas de AWS IoT Core
+**/certs/*.pem
+**/certs/*.crt
+**/certs/*.key
+.env
+.env.local
+
+# Entornos de Python y Node.js
+__pycache__/
+.venv/
+venv/
+node_modules/
+.next/

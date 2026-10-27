@@ -23,6 +23,7 @@
     limpieza: { texto: "Limpieza", color: "#9085e9" },
     espera: { texto: "Espera", color: "#c98500" },
     detenida: { texto: "Detenida", color: "#4a5468" },
+    detenido: { texto: "Detenido", color: "#4a5468" },
     mantenimiento: { texto: "Mantenimiento", color: "#d95926" },
     falla: { texto: "Falla", color: "#e66767" },
   };
@@ -59,11 +60,16 @@
   function mostrarError(contenedor, e) { contenedor.replaceChildren(el("div", { clase: "mensaje error", texto: e.message })); }
   function rangoTexto(s) {
     if (s.normal_min === null && s.normal_max === null) return null;
-    const u = s.unidad === "0/1" ? "" : " " + s.unidad;
+    const u = (s.unidad === "0/1" || s.unidad === "0/1/2") ? "" : " " + s.unidad;
     if (s.normal_min !== null && s.normal_max !== null) return `Normal entre ${numero(s.normal_min)} y ${numero(s.normal_max)}${u}`;
     return s.normal_min !== null ? `Normal desde ${numero(s.normal_min)}${u}` : `Normal hasta ${numero(s.normal_max)}${u}`;
   }
   function valorTexto(s) {
+    if (s.unidad === "0/1/2" || s.tag === "EST_niv_betum_dep") {
+      if (s.valor === null || s.valor === undefined) return "—";
+      const nv = Math.round(Number(s.valor));
+      return nv === 0 ? "0 (OK)" : nv === 1 ? "1 (Adv)" : `${nv} (Falla)`;
+    }
     if (s.unidad === "0/1") return s.valor === null ? "—" : (Number(s.valor) >= 0.5 ? "Activa" : "Inactiva");
     const abs = Math.abs(Number(s.valor));
     return numero(s.valor, abs >= 1000 ? 0 : abs >= 100 ? 1 : 2);
@@ -103,6 +109,7 @@
     const inicial = (location.hash || "#panel").slice(1);
     irA(document.querySelector(`.nav button[data-vista="${inicial}"]:not([hidden])`) ? inicial : "panel");
     estado.temporizador = setInterval(() => { if (!document.hidden) actualizarCabecera(); if (estado.vista === "panel") cargarPanel(); }, 60000);
+    conectarCanalTiempoReal();
   }
 
   function irA(vista) {
@@ -159,6 +166,8 @@
     $("ind-fecha").textContent = r.ultima_lectura ? fechaHora(r.ultima_lectura).split(",")[0] + (estado.fuente === "simulado" ? ", datos simulados" : "") : "Sin lecturas para esta fuente";
     $("aviso-detenido").hidden = !(r.estado && r.estado !== "produccion" && r.sensores_fuera_de_rango > 0);
 
+    estado.lecturasActuales = lecturas;
+    estado.prediccionesActuales = pred;
     pintarInstrumentos(lecturas);
     pintarPredicciones(pred);
     if (r.ultima_lectura) {
@@ -252,7 +261,7 @@
       itemStyle: { color: (ESTADOS[est] || { color: C.tenue }).color },
       encode: { x: [0, 1], y: 2 },
       data: hist.filter((h) => h.estado === est).map((h) => [
-        new Date(h.inicio).getTime(), new Date(h.fin).getTime() + 60000, 0, h.minutos, h.tipo_asfalto]),
+        new Date(h.inicio).getTime(), new Date(h.fin).getTime() + 60000, 0, (h.minutos ?? Math.max(1, Math.round((new Date(h.fin) - new Date(h.inicio)) / 60000))), h.tipo_asfalto]),
       renderItem: (params, api) => {
         const ini = api.coord([api.value(0), 0]); const fin = api.coord([api.value(1), 0]);
         const alto = 18;
@@ -584,6 +593,199 @@
       } catch (e) { toast(e.message, "error"); }
     };
     dlg.showModal();
+  }
+
+  // ------------------------------------------------------------ TIEMPO REAL (Canal WebSocket y AWS IoT Core)
+  let clienteMqtt = null;
+  let reintentoMqttTimer = null;
+  let wsLocal = null;
+
+  function actualizarBadgeTiempoReal(conectado, textoExtra = "") {
+    const b = $("cab-tiempo-real");
+    if (!b) return;
+    if (conectado) {
+      b.className = "chip en-vivo";
+      b.replaceChildren(el("span", { clase: "punto" }), "En vivo (MQTT)");
+      b.title = "Canal de telemetría en tiempo real activo." + (textoExtra ? " " + textoExtra : "");
+    } else {
+      b.className = "chip offline";
+      b.replaceChildren(el("span", { clase: "punto" }), "Polling (60s)");
+      b.title = "Modo actualización periódica cada 60s." + (textoExtra ? " " + textoExtra : "");
+    }
+  }
+
+  function conectarCanalTiempoReal() {
+    clearTimeout(reintentoMqttTimer);
+    actualizarBadgeTiempoReal(false, "Conectando...");
+
+    // 1. Canal WebSocket en vivo
+    const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProto}//${location.host}/api/ws/telemetria`;
+
+    try {
+      wsLocal = new WebSocket(wsUrl);
+      wsLocal.onopen = () => {
+        console.info("Canal en vivo WebSocket conectado:", wsUrl);
+        actualizarBadgeTiempoReal(true);
+      };
+      wsLocal.onmessage = (ev) => {
+        try {
+          const datos = JSON.parse(ev.data);
+          const topic = datos.topic || "planta/asfalto/molino/telemetria";
+          procesarEventoMqtt(topic, datos);
+        } catch (e) {
+          console.error("Error procesando mensaje WebSocket:", e);
+        }
+      };
+      wsLocal.onclose = () => {
+        actualizarBadgeTiempoReal(false, "Reconectando...");
+        reintentoMqttTimer = setTimeout(conectarCanalTiempoReal, 5000);
+      };
+      wsLocal.onerror = () => {
+        actualizarBadgeTiempoReal(false);
+      };
+    } catch (e) {
+      actualizarBadgeTiempoReal(false);
+    }
+
+    // 2. Intentar también conexión MQTT AWS IoT Core directa si Paho está disponible
+    conectarMqttAwsIot();
+  }
+
+  async function conectarMqttAwsIot() {
+    try {
+      const PahoClient = window.Paho && (window.Paho.Client || (window.Paho.MQTT && window.Paho.MQTT.Client));
+      if (!PahoClient) { console.warn("Libreria Paho MQTT no disponible"); return; }
+      const cfg = await api("/iot/ws-url");
+      if (!cfg || !cfg.disponible || !cfg.url) { console.warn("AWS IoT WS no disponible: el backend no encontro credenciales AWS (boto3 / ~/.aws/credentials)."); return; }
+
+      const urlObj = new URL(cfg.url);
+      const host = urlObj.hostname;
+      const path = urlObj.pathname + urlObj.search;
+      const clientId = "qla_dash_" + Math.random().toString(16).slice(2, 10);
+      const client = new PahoClient(host, 443, path, clientId);
+
+      client.onMessageArrived = (msg) => {
+        try {
+          const payload = JSON.parse(msg.payloadString);
+          procesarEventoMqtt(msg.destinationName, payload);
+        } catch (e) {}
+      };
+
+      client.connect({
+        useSSL: true,
+        timeout: 8,
+        keepAliveInterval: 30,
+        onSuccess: () => {
+          console.info("Conectado exitosamente a AWS IoT Core por WebSocket");
+          actualizarBadgeTiempoReal(true);
+          if (cfg.topics && cfg.topics.telemetria) client.subscribe(cfg.topics.telemetria);
+          if (cfg.topics && cfg.topics.predicciones) client.subscribe(cfg.topics.predicciones);
+        },
+        onFailure: (err) => {
+          console.info("AWS IoT Core WebSocket no disponible directamente:", err.errorMessage);
+        }
+      });
+      clienteMqtt = client;
+    } catch (e) {}
+  }
+
+  function procesarEventoMqtt(topic, payload) {
+    if (topic.endsWith("/telemetria")) {
+      const lectura = payload.lectura_actual || payload;
+      const rawTs = payload.timestamp ?? lectura.timestamp;
+      const numTs = Number(rawTs);
+      const tsParsed = !rawTs ? new Date() : (!Number.isNaN(numTs) && String(rawTs).trim() !== "" ? new Date(numTs < 1e12 ? numTs * 1000 : numTs) : new Date(rawTs));
+      const ts = Number.isNaN(tsParsed.getTime()) ? new Date() : tsParsed;
+      estado.ultima = ts.toISOString();
+      $("cab-lectura").textContent = "Última lectura " + fechaHora(estado.ultima);
+      $("ind-hora").textContent = fmtHora.format(ts);
+      $("ind-fecha").textContent = fechaHora(estado.ultima).split(",")[0] + " (en vivo)";
+      if (lectura.ESTADO_operacion) {
+        const est = ESTADOS[lectura.ESTADO_operacion.toLowerCase()] || { texto: lectura.ESTADO_operacion, color: "#199e70" };
+        const chip = $("cab-estado");
+        if (chip) chip.replaceChildren(el("span", { clase: "punto", style: `background:${est.color}` }), est.texto);
+        const indEstado = $("ind-estado");
+        if (indEstado) indEstado.textContent = est.texto;
+      }
+      const rawAsfalto = lectura.TIPO_asfalto || payload.TIPO_asfalto || (lectura.es_plastomerico === 1 ? "plastomerico" : null);
+      if (rawAsfalto) {
+        const indAsf = $("ind-asfalto");
+        if (indAsf) indAsf.textContent = ASFALTO[String(rawAsfalto).toLowerCase()] || rawAsfalto;
+      }
+      if (estado.lecturasActuales) {
+        let fueras = 0;
+        estado.lecturasActuales.forEach((l) => {
+          if (l.tag in lectura) {
+            l.valor = lectura[l.tag];
+            l.ts = estado.ultima;
+            l.fuera_de_rango = (l.normal_min !== null && l.valor < l.normal_min) || (l.normal_max !== null && l.valor > l.normal_max);
+          }
+          if (l.fuera_de_rango) fueras++;
+        });
+        $("ind-fuera").textContent = `${fueras} de ${estado.lecturasActuales.length}`;
+        $("ind-fuera-det").textContent = fueras ? "Revise las lecturas marcadas" : "Todas dentro de su rango";
+        if (estado.vista === "panel") {
+          pintarInstrumentos(estado.lecturasActuales);
+        }
+      }
+    } else if (topic.endsWith("/predicciones")) {
+      const tituloFalla = (cod) => {
+        if (!cod || cod === "Normal") return "Operación normal";
+        const f = (estado.tiposFalla || []).find((x) => x.codigo === cod);
+        return f ? f.titulo : String(cod).replaceAll("_", " ");
+      };
+      if (payload.alerta_activa) {
+        toast(`⚠️ Alerta predictiva: ${tituloFalla(payload.falla)} (Riesgo 24h: ${((Number(payload.riesgo_24h) || 0) * 100).toFixed(1)}%)`, "error");
+      }
+      const tsIso = new Date().toISOString();
+      if (!Array.isArray(estado.prediccionesActuales) || !estado.prediccionesActuales.length) {
+        estado.prediccionesActuales = [
+          { horizonte: "24h", modelo: "predictivo", prob_falla: 0, falla: "Normal", titulo: "Operación normal", indice_salud: 96.0, vida_util_horas: null, ts: tsIso },
+          { horizonte: "5d", modelo: "predictivo", prob_falla: 0, falla: "Normal", titulo: "Operación normal", indice_salud: 92.0, vida_util_horas: null, ts: tsIso },
+          { horizonte: "15d", modelo: "predictivo", prob_falla: 0, falla: "Normal", titulo: "Operación normal", indice_salud: 88.0, vida_util_horas: null, ts: tsIso },
+        ];
+      }
+      [
+        { hz: "24h", probKey: "riesgo_24h", fallaKey: "falla_24h" },
+        { hz: "5d", probKey: "riesgo_5d", fallaKey: "falla_5d" },
+        { hz: "15d", probKey: "riesgo_15d", fallaKey: "falla_15d" },
+      ].forEach(({ hz, probKey, fallaKey }) => {
+        if (payload[probKey] !== undefined) {
+          let item = estado.prediccionesActuales.find((p) => p.horizonte === hz);
+          if (!item) {
+            item = { horizonte: hz, modelo: "predictivo", vida_util_horas: null };
+            estado.prediccionesActuales.push(item);
+          }
+          const probVal = Number(payload[probKey]) || 0;
+          const codFalla = payload[fallaKey] || (probVal >= 0.25 ? payload.falla : "Normal") || "Normal";
+          item.prob_falla = probVal;
+          item.falla = codFalla;
+          item.titulo = tituloFalla(codFalla);
+          item.indice_salud = payload.indice_salud !== undefined ? Number(payload.indice_salud) : Math.max(0, Math.round((1 - probVal) * 100));
+          item.ts = tsIso;
+        }
+      });
+      if (estado.vista === "panel" && estado.prediccionesActuales) {
+        pintarPredicciones(estado.prediccionesActuales);
+      }
+      return;
+      if (false && payload.alerta_activa) {
+        toast(`⚠️ Alerta predictiva: Posible falla ${payload.falla || 'detectada'} (Riesgo 24h: ${((payload.riesgo_24h || 0) * 100).toFixed(1)}%)`, "error");
+      }
+      if (estado.prediccionesActuales && payload.riesgo_24h !== undefined) {
+        const p24 = estado.prediccionesActuales.find(p => p.horizonte === "24h");
+        if (p24) {
+          p24.prob_falla = payload.riesgo_24h;
+          p24.falla = payload.falla;
+          p24.titulo = payload.falla;
+          p24.ts = new Date().toISOString();
+        }
+        if (estado.vista === "panel") {
+          pintarPredicciones(estado.prediccionesActuales);
+        }
+      }
+    }
   }
 
   iniciar();

@@ -1,0 +1,19 @@
+{
+    "MOLINO_QLA_01": {
+        "ultima_mantencion_cojinetes": "2026-09-01T00:00:00Z",
+        "ultima_mantencion_filtro": "2026-09-10T00:00:00Z",
+        "ultima_mantencion_radar": "2026-09-05T00:00:00Z",
+        "ultima_mantencion_caldera": "2026-08-20T00:00:00Z",
+        "ultima_mantencion_intercambiador": "2026-09-02T00:00:00Z",
+        "ultima_mantencion_caudalimetro": "2026-08-15T00:00:00Z",
+        "ultima_mantencion_pt100": "2026-08-25T00:00:00Z",
+        "rodamientos": "2026-09-01T00:00:00Z",
+        "filtro": "2026-09-10T00:00:00Z",
+        "radar": "2026-09-05T00:00:00Z",
+        "caldera": "2026-08-20T00:00:00Z",
+        "intercambiador": "2026-09-02T00:00:00Z",
+        "caudalimetro": "2026-08-15T00:00:00Z",
+        "pt100": "2026-08-25T00:00:00Z",
+        "horas_operacion_acumuladas": 1420.5
+    }
+}

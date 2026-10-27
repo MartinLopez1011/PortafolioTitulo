@@ -38,6 +38,10 @@ _SELECT = """SELECT u.id, u.nombre, u.email, r.nombre AS rol, r.nivel, u.activo,
 
 @router.get("", summary="Listar usuarios")
 def listar(admin: dict = Depends(solo_admin)):
+    from .. import db
+    if db.MODO_DEMO:
+        from .. import demo_store
+        return list(demo_store.USUARIOS.values())
     with cursor() as cur:
         cur.execute(_SELECT + " ORDER BY r.nivel DESC, u.nombre")
         return cur.fetchall()
@@ -113,6 +117,9 @@ def restablecer_clave(usuario_id: int, datos: ClaveTemporal, request: Request,
 
 @router.get("/auditoria", summary="Últimos registros de acceso")
 def auditoria(limite: int = Query(100, ge=1, le=1000), admin: dict = Depends(solo_admin)):
+    from .. import db
+    if db.MODO_DEMO:
+        return []
     with cursor() as cur:
         cur.execute(
             """SELECT a.fecha, a.email, host(a.ip) AS ip, a.accion, a.detalle
