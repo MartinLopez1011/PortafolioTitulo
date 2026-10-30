@@ -15,8 +15,21 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-IOT_ENDPOINT = os.environ.get("IOT_ENDPOINT", "a2ep4ljpgw7df7-ats.iot.us-east-1.amazonaws.com").replace("https://", "").rstrip("/")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+
+
+def _resolver_iot_endpoint() -> str:
+    ep = os.environ.get("IOT_ENDPOINT", "").strip().replace("https://", "").rstrip("/")
+    if ep:
+        return ep
+    try:
+        import boto3
+        return boto3.client("iot", region_name=AWS_REGION).describe_endpoint(endpointType="iot:Data-ATS")["endpointAddress"]
+    except Exception:
+        return "a2ep4ljpgw7df7-ats.iot.us-east-1.amazonaws.com"
+
+
+IOT_ENDPOINT = _resolver_iot_endpoint()
 
 
 def _obtener_credenciales():

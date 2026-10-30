@@ -10,6 +10,7 @@ Alimenta simultáneamente:
 import argparse
 import datetime
 import json
+import os
 from pathlib import Path
 import random
 import sqlite3
@@ -17,8 +18,21 @@ import time
 import boto3
 from pydantic import BaseModel
 
-REGION = "us-east-1"
-IOT_ENDPOINT = "https://a2ep4ljpgw7df7-ats.iot.us-east-1.amazonaws.com"
+REGION = os.environ.get("AWS_REGION", "us-east-1")
+
+
+def _resolver_iot_endpoint() -> str:
+    ep = os.environ.get("IOT_ENDPOINT", "").strip()
+    if ep:
+        return ep if ep.startswith("https://") else f"https://{ep}"
+    try:
+        addr = boto3.client("iot", region_name=REGION).describe_endpoint(endpointType="iot:Data-ATS")["endpointAddress"]
+        return f"https://{addr}"
+    except Exception:
+        return "https://a2ep4ljpgw7df7-ats.iot.us-east-1.amazonaws.com"
+
+
+IOT_ENDPOINT = _resolver_iot_endpoint()
 TOPIC_TELEMETRIA = "planta/asfalto/molino/telemetria"
 DB_BUFFER_PATH = Path(__file__).resolve().parent / "iot_store_and_forward.db"
 

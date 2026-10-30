@@ -4,7 +4,7 @@
     "actions": [
         {
             "firehose": {
-                "roleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/LabRole",
+                "roleArn": "${IOT_RULE_ROLE_ARN}",
                 "deliveryStreamName": "stream-backup-planta-asfalto",
                 "separator": "\n",
                 "batchMode": false

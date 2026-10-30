@@ -55,35 +55,50 @@ S3_VENTANA_PATH = f"s3://{BUCKET_NAME}/ventana_activa/ultimas_168_horas.parquet"
 S3_BITACORA_KEY = os.environ.get("S3_BITACORA_KEY", "bitacora/estado_equipos.json")
 s3_client = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
 
+# Caché en memoria global (Warm Start) para evitar lecturas/escrituras S3 redundantes dentro del mismo minuto
+_VENTANA_CACHE_DF = None
+_ULTIMO_MIN_BUCKET_S3 = None
+_BITACORA_CACHE = {}
+_ULTIMA_LECTURA_BITACORA_TS = 0.0
+
 
 def obtener_bitacora(equipo_id: str) -> dict:
-    """Lee el estado de mantenciones desde S3"""
+    """Lee el estado de mantenciones desde S3 con caché de 60 segundos en Warm Start."""
+    global _BITACORA_CACHE, _ULTIMA_LECTURA_BITACORA_TS
+    ahora = time.time()
+    if _BITACORA_CACHE and (ahora - _ULTIMA_LECTURA_BITACORA_TS) < 60.0:
+        return _BITACORA_CACHE.get(equipo_id, {})
     try:
         obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=S3_BITACORA_KEY)
-        bitacora = json.loads(obj["Body"].read().decode("utf-8"))
-        return bitacora.get(equipo_id, {})
+        _BITACORA_CACHE = json.loads(obj["Body"].read().decode("utf-8"))
+        _ULTIMA_LECTURA_BITACORA_TS = ahora
+        return _BITACORA_CACHE.get(equipo_id, {})
     except Exception as e:
         logger.warning(f"No se pudo leer bitácora desde S3 ({e})")
-        return {}
+        return _BITACORA_CACHE.get(equipo_id, {})
 
 
 def actualizar_ventana_168h(nueva_lectura: dict) -> pd.DataFrame:
     """
-    Lee las últimas 168 horas desde S3, consolida a resolución de 1 minuto para evitar que
-    ráfagas sub-minuto sobrescriban la ventana de 7 días, y persiste el Parquet actualizado.
+    Mantiene las últimas 168 horas consolidadas a resolución de 1 minuto.
+    Optimización FinOps/MLOps: Utiliza caché en memoria global durante el Warm Start y solo
+    persiste el Parquet en S3 cuando cambia el minuto (_min_bucket), reduciendo 30x los PUT/GET a S3.
     """
+    global _VENTANA_CACHE_DF, _ULTIMO_MIN_BUCKET_S3
     df_nuevo = pd.DataFrame([nueva_lectura])
-    df_completo = df_nuevo
     key = "ventana_activa/ultimas_168_horas.parquet"
 
-    # 1. Intentar leer la ventana actual desde S3 usando boto3
-    try:
-        obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
-        df_historico = pd.read_parquet(io.BytesIO(obj["Body"].read()))
-        df_completo = pd.concat([df_historico, df_nuevo], ignore_index=True)
-    except Exception as e:
-        logger.info(f"Iniciando nueva ventana activa en S3 ({e})")
-        df_completo = df_nuevo
+    # 1. Cargar desde S3 únicamente en Cold Start (cuando _VENTANA_CACHE_DF es None)
+    if _VENTANA_CACHE_DF is None:
+        try:
+            obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
+            df_historico = pd.read_parquet(io.BytesIO(obj["Body"].read()))
+            df_completo = pd.concat([df_historico, df_nuevo], ignore_index=True)
+        except Exception as e:
+            logger.info(f"Iniciando nueva ventana activa en S3 ({e})")
+            df_completo = df_nuevo
+    else:
+        df_completo = pd.concat([_VENTANA_CACHE_DF, df_nuevo], ignore_index=True)
 
     # 2. Normalizar timestamp epoch y consolidar duplicados dentro del mismo minuto
     try:
@@ -101,18 +116,24 @@ def actualizar_ventana_168h(nueva_lectura: dict) -> pd.DataFrame:
         max_ts = int(df_completo["timestamp"].max())
         corte_168h = max_ts - (168 * 3600)
         df_ventana = df_completo[df_completo["timestamp"] >= corte_168h].tail(10080).reset_index(drop=True)
+        min_bucket_actual = max_ts // 60
     except Exception as e_norm:
         logger.warning(f"Fallback en poda de ventana 168h: {e_norm}")
         df_ventana = df_completo.tail(10080).reset_index(drop=True)
+        min_bucket_actual = int(time.time()) // 60
 
-    # 3. Sobrescribir el parquet en S3 usando boto3
-    try:
-        buffer = io.BytesIO()
-        df_ventana.to_parquet(buffer, index=False)
-        buffer.seek(0)
-        s3_client.put_object(Bucket=BUCKET_NAME, Key=key, Body=buffer.getvalue())
-    except Exception as e_s3_put:
-        logger.warning(f"Advertencia al guardar ventana activa en S3: {e_s3_put}")
+    _VENTANA_CACHE_DF = df_ventana
+
+    # 3. Persistir en S3 únicamente cuando avanza el minuto (1 PUT/min en lugar de 1 PUT cada 2s)
+    if _ULTIMO_MIN_BUCKET_S3 != min_bucket_actual:
+        try:
+            buffer = io.BytesIO()
+            df_ventana.to_parquet(buffer, index=False)
+            buffer.seek(0)
+            s3_client.put_object(Bucket=BUCKET_NAME, Key=key, Body=buffer.getvalue())
+            _ULTIMO_MIN_BUCKET_S3 = min_bucket_actual
+        except Exception as e_s3_put:
+            logger.warning(f"Advertencia al guardar ventana activa en S3: {e_s3_put}")
 
     return df_ventana
 
