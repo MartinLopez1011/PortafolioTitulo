@@ -17,11 +17,22 @@ if sys.stdout.encoding != 'utf-8':
         pass
 
 REGION = os.environ.get("AWS_REGION", "us-east-1")
-BUCKET = "backup-planta-asfalto-molino-ml"
-DYNAMO_TABLE = "QLA_Molino_Telemetria"
+BUCKET = os.environ.get("S3_BUCKET", "backup-planta-asfalto-molino-ml")
+DYNAMO_TABLE = os.environ.get("DYNAMODB_TABLE", "QLA_Molino_Telemetria")
 GLUE_DB = "qla_planta_asfalto"
 GLUE_TABLE = "telemetria_molino"
-IOT_ENDPOINT = "a2ep4ljpgw7df7-ats.iot.us-east-1.amazonaws.com"
+
+
+def _resolver_iot_endpoint(session_obj) -> str:
+    ep = os.environ.get("IOT_ENDPOINT", "").strip().replace("https://", "").rstrip("/")
+    if ep:
+        return ep
+    try:
+        return session_obj.client("iot").describe_endpoint(endpointType="iot:Data-ATS")["endpointAddress"]
+    except Exception:
+        return "a2ep4ljpgw7df7-ats.iot.us-east-1.amazonaws.com"
+
+
 TOPIC_TELEMETRIA = "planta/asfalto/molino/telemetria"
 TOPIC_PREDICCIONES = "planta/asfalto/molino/predicciones"
 
@@ -30,6 +41,7 @@ print("🚀 VALIDACIÓN INTEGRAL DE LA ARQUITECTURA (3 RUTAS QLA)")
 print("=" * 70)
 
 session = boto3.Session(region_name=REGION)
+IOT_ENDPOINT = _resolver_iot_endpoint(session)
 iot_data = session.client("iot-data", endpoint_url=f"https://{IOT_ENDPOINT}")
 dynamodb = session.resource("dynamodb")
 table = dynamodb.Table(DYNAMO_TABLE)
