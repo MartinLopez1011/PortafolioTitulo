@@ -3,218 +3,382 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Molino MC-01 | Mantenimiento predictivo QLA</title>
+<title>Molino coloidal MC-01 | Mantenimiento predictivo QLA</title>
 <link rel="icon" href="/img/logo-qla.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Archivo+Narrow:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/app.css">
+<script>
+  // Sin sesión no se muestra el panel
+  try { if (!sessionStorage.getItem("qla_token")) location.replace("/login.html"); } catch (e) { location.replace("/login.html"); }
+</script>
 </head>
-<body>
+<body class="panel">
+
 <header class="cabecera">
   <div class="marca">
-    <img src="/img/logo-qla-claro.png" alt="Química Latinoamericana">
-    <div>
-      <strong id="cab-equipo">Molino coloidal MC-01</strong>
-      <span>Planta de emulsiones, El Salto</span>
+    <span class="logo"><img src="/img/logo-qla.png" alt="QLA"></span>
+    <div class="titulo">
+      <h1>Molino coloidal MC-01</h1>
+      <p>Química Latinoamericana: Planta de emulsión asfáltica</p>
     </div>
   </div>
-  <div class="estado">
-    <span class="chip" id="cab-tiempo-real" title="Canal WebSocket MQTT con AWS IoT Core"><span class="punto"></span>Conectando…</span>
-    <span class="chip" id="cab-estado"><span class="punto"></span>Cargando…</span>
-    <span class="tenue num" id="cab-lectura"></span>
-    <label class="sr" for="sel-fuente">Origen de los datos</label>
-    <select id="sel-fuente" class="compacto" title="Origen de los datos">
-      <option value="simulado">Datos simulados</option>
-      <option value="real">Datos reales</option>
-    </select>
+  <div class="cabecera-der">
+    <div class="reloj" title="Hora de la última lectura del molino">
+      <strong id="reloj-hora">--:--</strong>
+      <span id="reloj-fecha">--</span>
+    </div>
+    <span class="chip" id="chip-estado"><span class="punto gris"></span><span class="txt">Sin datos</span></span>
+    <span class="chip" id="chip-modelos"><span class="punto gris"></span><span class="txt">Modelos: diagnóstico, vigilancia, predicción</span></span>
     <div class="usuario">
-      <span><span id="cab-usuario"></span> <span class="rol" id="cab-rol"></span></span>
-      <button class="btn-texto" id="btn-salir">Cerrar sesión</button>
+      <button class="btn-usuario" id="btn-usuario" aria-haspopup="true" aria-expanded="false">
+        <span id="usuario-nombre">Usuario</span><span class="rol" id="usuario-rol"></span>
+      </button>
+      <div class="menu-usuario" id="menu-usuario" hidden>
+        <button id="btn-salir">Cerrar sesión</button>
+      </div>
     </div>
   </div>
 </header>
 
-<nav class="nav" role="tablist" aria-label="Secciones">
-  <button role="tab" data-vista="panel" aria-selected="true">Panel</button>
-  <button role="tab" data-vista="tendencias" aria-selected="false">Tendencias</button>
-  <button role="tab" data-vista="alarmas" aria-selected="false">Alarmas <span class="insignia" id="insignia-alarmas" hidden></span></button>
-  <button role="tab" data-vista="mantenimiento" aria-selected="false">Mantenimiento</button>
-  <button role="tab" data-vista="usuarios" aria-selected="false" data-nivel="4" hidden>Usuarios</button>
+<nav class="pestanas" role="tablist" aria-label="Pantallas">
+  <button role="tab" data-tab="proceso" aria-selected="true">Proceso</button>
+  <button role="tab" data-tab="prediccion" aria-selected="false">Predicción</button>
+  <button role="tab" data-tab="alarmas" aria-selected="false">Alarmas <span class="contador" id="cont-alarmas" hidden></span></button>
+  <button role="tab" data-tab="salud" aria-selected="false">Salud del equipo</button>
+  <button role="tab" data-tab="mantenimiento" aria-selected="false">Mantenimiento</button>
+  <button role="tab" data-tab="simulacion" aria-selected="false">Simulación (demo)</button>
+  <button role="tab" data-tab="usuarios" aria-selected="false" id="tab-usuarios" hidden>Usuarios</button>
 </nav>
 
+<div class="barra-sim" id="barra-sim">
+  <button class="btn btn-primario" id="sim-play">Iniciar</button>
+  <label>Velocidad <select id="sim-velocidad"></select></label>
+  <label>Funcionamiento <select id="sim-modo"><option value="">Calendario real (2026)</option></select></label>
+  <label>Ir a <select id="sim-ir"><option value="">Elegir…</option></select></label>
+  <label>Inyectar falla <select id="sim-escenario"><option value="">Ninguna (datos reales)</option></select></label>
+  <span class="sim-texto" id="sim-texto">Cargando simulación…</span>
+</div>
+
 <main>
-  <!-- ======================= PANEL ======================= -->
-  <section class="vista" data-panel="panel">
-    <div class="franja">
-      <div>
-        <div class="etiqueta">Estado del molino</div>
-        <div class="valor" id="ind-estado">—</div>
-        <div class="detalle" id="ind-asfalto"></div>
-      </div>
-      <div>
-        <div class="etiqueta">Sensores fuera de rango</div>
-        <div class="valor num" id="ind-fuera">—</div>
-        <div class="detalle" id="ind-fuera-det"></div>
-      </div>
-      <div>
-        <div class="etiqueta">Alarmas activas</div>
-        <div class="valor num" id="ind-alarmas">—</div>
-        <div class="detalle" id="ind-alarmas-det"></div>
-      </div>
-      <div>
-        <div class="etiqueta">Última lectura</div>
-        <div class="valor num" id="ind-hora">—</div>
-        <div class="detalle" id="ind-fecha"></div>
-      </div>
-    </div>
+<div class="aviso" id="aviso-global" hidden></div>
 
-    <div id="aviso-detenido" class="mensaje info" hidden>
-      El molino no está produciendo. Los rangos normales corresponden a producción, por eso algunas lecturas aparecen fuera de rango mientras está detenido.
-    </div>
-
-    <div class="bloque">
-      <div class="bloque-cab">
-        <h2>Operación de las últimas 24 horas</h2>
-        <p>Cada tramo es un modo de operación registrado minuto a minuto</p>
-      </div>
-      <div id="graf-estado-panel" class="grafico-estado" role="img" aria-label="Línea de tiempo del estado del molino"></div>
-    </div>
-
-    <div class="bloque">
-      <div class="bloque-cab">
-        <h2>Predicción de fallas</h2>
-        <p id="pred-fecha"></p>
-      </div>
-      <div id="pred-contenido"></div>
-    </div>
-
+<!-- =============================== PROCESO =============================== -->
+<section class="vista" id="vista-proceso">
+  <div class="banner" id="banner">
     <div>
-      <div class="bloque-cab">
-        <h2>Panel de instrumentos</h2>
-        <p>Ordenado según el recorrido del proceso. Seleccione una lectura para ver su tendencia.</p>
-      </div>
-      <div class="panel-instrumentos" id="instrumentos"></div>
+      <h2 id="banner-titulo">Cargando…</h2>
+      <p class="banner-accion" id="banner-accion"></p>
+      <p class="banner-origen" id="banner-origen"></p>
     </div>
-  </section>
+    <div class="banner-der">
+      <span id="banner-desde"></span>
+      <button class="btn btn-oscuro" id="banner-ver" hidden>Ver alarmas</button>
+    </div>
+  </div>
 
-  <!-- ======================= TENDENCIAS ======================= -->
-  <section class="vista" data-panel="tendencias" hidden>
-    <div class="bloque">
-      <div class="filtros">
-        <div class="campo">
-          <label for="sel-sensor">Agregar sensor</label>
-          <select id="sel-sensor"></select>
-        </div>
-        <button class="btn" id="btn-agregar">Agregar</button>
-        <div class="campo">
-          <span class="sr" id="lbl-rango">Periodo</span>
-          <div class="segmentado" role="group" aria-labelledby="lbl-rango" id="seg-rango">
-            <button data-horas="24" aria-pressed="true">24 h</button>
-            <button data-horas="72" aria-pressed="false">3 días</button>
-            <button data-horas="168" aria-pressed="false">7 días</button>
-            <button data-horas="336" aria-pressed="false">14 días</button>
-          </div>
-        </div>
-      </div>
-      <div class="chips-sel" id="chips-sensores" style="margin-top:12px"></div>
-    </div>
-    <div class="bloque">
-      <div class="bloque-cab">
-        <h2>Tendencias</h2>
-        <p id="tend-periodo"></p>
-      </div>
-      <div class="grafico-titulo"><span>Estado del molino</span></div>
-      <div id="graf-estado-tend" class="grafico-estado"></div>
-      <div id="graficos"></div>
-    </div>
-  </section>
+  <div class="proceso-grid">
+    <div class="medidores" id="medidores-izq"></div>
 
-  <!-- ======================= ALARMAS ======================= -->
-  <section class="vista" data-panel="alarmas" hidden>
-    <div class="bloque">
-      <div class="bloque-cab">
-        <h2>Alarmas</h2>
-        <div class="segmentado" role="group" aria-label="Filtro de alarmas" id="seg-alarmas">
-          <button data-activas="true" aria-pressed="true">Activas</button>
-          <button data-activas="false" aria-pressed="false">Todas</button>
-        </div>
+    <div class="tarjeta diagrama">
+      <h3 class="diagrama-titulo" id="diagrama-titulo">Planta de emulsión / Línea de molienda</h3>
+      <svg viewBox="0 0 1160 470" id="pid" role="img" aria-label="Diagrama de la línea de molienda">
+        <defs>
+          <pattern id="rayas" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="8" stroke="currentColor" stroke-width="2"/>
+          </pattern>
+        </defs>
+        <rect x="0" y="0" width="1160" height="470" rx="10" class="pid-fondo"/>
+        <text x="1140" y="26" class="pid-fabricando" text-anchor="end" id="pid-fabricando"></text>
+
+        <!-- Cañerías -->
+        <path d="M172 170 H600" class="tubo betun"/>
+        <path d="M172 382 H545 V96 H600" class="tubo solucion"/>
+        <path d="M520 30 V170" class="tubo agua"/>
+        <path d="M520 96 H560 V80 H600" class="tubo betun-fino"/>
+        <path d="M712 214 H770 M870 214 H950" class="tubo emulsion"/>
+        <path d="M712 262 V300 H950" class="tubo emulsion-fino"/>
+        <text x="528" y="24" class="pid-nota">Agua + aire (limpieza)</text>
+
+        <!-- TK-101 Betún -->
+        <g class="equipo" data-tags="TEM_son_betum_in,AMP_eco_betum_dep,VOLT_son_betum_in,POR_niv_betum_dep">
+          <text x="98" y="42" class="pid-nombre" text-anchor="middle">TK-101 Betún</text>
+          <rect x="28" y="56" width="140" height="190" rx="12" class="tanque"/>
+          <rect x="30" y="140" width="136" height="104" rx="10" class="nivel betun" data-nivel="POR_niv_betum_dep" data-y0="58" data-alto="186"/>
+          <text x="98" y="92" class="pid-valor" text-anchor="middle" data-tag="TEM_son_betum_in" data-dec="1" data-uni="°C"></text>
+          <text x="98" y="108" class="pid-sub" text-anchor="middle">temperatura</text>
+          <text x="98" y="140" class="pid-valor" text-anchor="middle" data-tag="AMP_eco_betum_dep" data-dec="1" data-uni="dB"></text>
+          <text x="98" y="155" class="pid-sub" text-anchor="middle">eco radar</text>
+          <text x="98" y="183" class="pid-valor" text-anchor="middle" data-tag="VOLT_son_betum_in" data-dec="1" data-uni="V"></text>
+          <text x="98" y="198" class="pid-sub" text-anchor="middle">alim. Pt100</text>
+          <text x="98" y="232" class="pid-valor" text-anchor="middle" data-tag="POR_niv_betum_dep" data-dec="0" data-pre="Nivel " data-uni="%"></text>
+        </g>
+
+        <!-- TK-201 Solución -->
+        <g class="equipo" data-tags="TEM_son_solucion_in,AMP_eco_solucion_dep,POR_niv_solucion_dep">
+          <text x="98" y="284" class="pid-nombre" text-anchor="middle">TK-201 Solución</text>
+          <rect x="28" y="296" width="140" height="160" rx="12" class="tanque"/>
+          <rect x="30" y="370" width="136" height="84" rx="10" class="nivel solucion" data-nivel="POR_niv_solucion_dep" data-y0="298" data-alto="156"/>
+          <text x="98" y="330" class="pid-valor" text-anchor="middle" data-tag="TEM_son_solucion_in" data-dec="1" data-uni="°C"></text>
+          <text x="98" y="345" class="pid-sub" text-anchor="middle">temperatura</text>
+          <text x="98" y="378" class="pid-valor" text-anchor="middle" data-tag="AMP_eco_solucion_dep" data-dec="1" data-uni="dB"></text>
+          <text x="98" y="393" class="pid-sub" text-anchor="middle">eco radar</text>
+          <text x="98" y="442" class="pid-valor" text-anchor="middle" data-tag="POR_niv_solucion_dep" data-dec="0" data-pre="Nivel " data-uni="%"></text>
+        </g>
+
+        <!-- FT-101 -->
+        <g class="equipo" data-tags="FRE_cau_betum_in,AMP_cau_betum_in">
+          <text x="262" y="135" class="pid-nota" text-anchor="middle">FT-101 Coriolis</text>
+          <rect x="230" y="154" width="64" height="32" rx="4" class="caja"/>
+          <text x="262" y="175" class="pid-caja" text-anchor="middle">FT</text>
+          <text x="262" y="208" class="pid-valor" text-anchor="middle" data-tag="FRE_cau_betum_in" data-dec="1" data-uni="Hz"></text>
+          <text x="262" y="224" class="pid-valor" text-anchor="middle" data-tag="AMP_cau_betum_in" data-dec="1" data-uni="mA"></text>
+        </g>
+        <!-- FT-201 -->
+        <g class="equipo" data-tags="FRE_cau_solucion_in,AMP_cau_solucion_in">
+          <text x="262" y="346" class="pid-nota" text-anchor="middle">FT-201 Coriolis</text>
+          <rect x="230" y="366" width="64" height="32" rx="4" class="caja"/>
+          <text x="262" y="387" class="pid-caja" text-anchor="middle">FT</text>
+          <text x="262" y="420" class="pid-valor" text-anchor="middle" data-tag="FRE_cau_solucion_in" data-dec="1" data-uni="Hz"></text>
+          <text x="262" y="436" class="pid-valor" text-anchor="middle" data-tag="AMP_cau_solucion_in" data-dec="1" data-uni="mA"></text>
+        </g>
+        <!-- F-101 Filtro -->
+        <g class="equipo" data-tags="PRE_dif_filtro_bar">
+          <text x="358" y="122" class="pid-nota" text-anchor="middle">F-101 Filtro</text>
+          <rect x="334" y="142" width="50" height="56" rx="4" class="caja filtro"/>
+          <rect x="338" y="146" width="42" height="48" class="rayado"/>
+          <text x="358" y="222" class="pid-valor" text-anchor="middle" data-tag="PRE_dif_filtro_bar" data-dec="2" data-uni="bar"></text>
+          <text x="358" y="237" class="pid-sub" text-anchor="middle">ΔP filtro</text>
+        </g>
+        <!-- P-101 Bomba -->
+        <g class="equipo" data-tags="CAU_bomba_lpm">
+          <text x="444" y="132" class="pid-nota" text-anchor="middle">P-101 Bomba</text>
+          <circle cx="444" cy="170" r="24" class="caja"/>
+          <path d="M436 158 L458 170 L436 182 Z" class="bomba-flecha"/>
+          <text x="444" y="222" class="pid-valor" text-anchor="middle" data-tag="CAU_bomba_lpm" data-dec="0" data-uni="L/min"></text>
+          <text x="444" y="237" class="pid-sub" text-anchor="middle">caudal</text>
+        </g>
+        <!-- V-101 -->
+        <g class="equipo" data-tags="POS_valvula_3vias,VAL_aire_linea">
+          <path d="M508 158 L532 182 M508 182 L532 158 M508 158 V182 M532 158 V182" class="valvula"/>
+          <text x="520" y="202" class="pid-nota" text-anchor="middle">V-101</text>
+          <text x="520" y="218" class="pid-sub" text-anchor="middle" id="pid-valvula"></text>
+        </g>
+        <!-- MC-01 Molino -->
+        <g class="equipo" data-tags="RPM_motor_molino,AMP_vfd_motor_molino,TOR_vfd_motor_molino,VIB_vel_motor_molino,TEM_emulsion_molino_out">
+          <path d="M610 58 H702 L688 96 H624 Z" class="caja"/>
+          <rect x="600" y="100" width="112" height="168" rx="8" class="caja"/>
+          <circle cx="656" cy="160" r="30" class="rotor"/>
+          <path d="M656 132 V188 M628 160 H684 M636 140 L676 180 M676 140 L636 180" class="rotor-aspas"/>
+          <rect x="642" y="268" width="28" height="18" class="caja"/>
+          <rect x="604" y="286" width="104" height="104" rx="6" class="caja"/>
+          <path d="M616 306 H696 M616 322 H696 M616 338 H696 M616 354 H696 M616 370 H696" class="motor-lineas"/>
+          <text x="656" y="414" class="pid-nombre" text-anchor="middle">MC-01 Molino coloidal</text>
+          <text x="656" y="430" class="pid-sub" text-anchor="middle">100 hp, 2.900 RPM</text>
+          <text x="724" y="330" class="pid-valor" data-tag="RPM_motor_molino" data-dec="0" data-uni="RPM"></text>
+          <text x="724" y="346" class="pid-valor" data-tag="AMP_vfd_motor_molino" data-dec="1" data-uni="A"></text>
+          <text x="724" y="362" class="pid-valor" data-tag="TOR_vfd_motor_molino" data-dec="0" data-pre="Torque " data-uni="%"></text>
+          <text x="724" y="378" class="pid-valor" data-tag="VIB_vel_motor_molino" data-dec="1" data-uni="mm/s"></text>
+          <text x="718" y="246" class="pid-valor" data-tag="TEM_emulsion_molino_out" data-dec="1" data-uni="°C"></text>
+          <text x="718" y="262" class="pid-sub">T° salida</text>
+        </g>
+        <!-- E-301 Intercambiador -->
+        <g class="equipo" data-tags="PRE_intercambiador_bar">
+          <text x="820" y="176" class="pid-nota" text-anchor="middle">E-301 Intercambiador</text>
+          <ellipse cx="820" cy="214" rx="50" ry="24" class="caja"/>
+          <path d="M792 214 l8 -12 l8 24 l8 -24 l8 24 l8 -24 l8 12" class="resistencia"/>
+          <text x="820" y="258" class="pid-valor" text-anchor="middle" data-tag="PRE_intercambiador_bar" data-dec="1" data-uni="bar"></text>
+          <text x="820" y="273" class="pid-sub" text-anchor="middle" id="pid-intercambiador"></text>
+          <text x="830" y="318" class="pid-sub" text-anchor="middle">línea directa (convencional)</text>
+        </g>
+        <!-- TK-301 Emulsión -->
+        <g class="equipo" data-tags="TEM_son_emulsion_out,AMP_eco_emulsion_dep,AMP_niv_emulsion_dep">
+          <text x="1024" y="98" class="pid-nombre" text-anchor="middle">TK-301 Emulsión</text>
+          <rect x="954" y="112" width="140" height="200" rx="12" class="tanque"/>
+          <rect x="956" y="220" width="136" height="90" rx="10" class="nivel emulsion" data-nivel="NIVEL_EMULSION" data-y0="114" data-alto="196"/>
+          <text x="1024" y="148" class="pid-valor" text-anchor="middle" data-tag="TEM_son_emulsion_out" data-dec="1" data-uni="°C"></text>
+          <text x="1024" y="163" class="pid-sub" text-anchor="middle">temperatura</text>
+          <text x="1024" y="196" class="pid-valor" text-anchor="middle" data-tag="AMP_eco_emulsion_dep" data-dec="1" data-uni="dB"></text>
+          <text x="1024" y="211" class="pid-sub" text-anchor="middle">eco radar</text>
+          <text x="1024" y="296" class="pid-valor" text-anchor="middle" data-tag="NIVEL_EMULSION" data-dec="0" data-pre="Nivel " data-uni="%"></text>
+        </g>
+      </svg>
+      <div class="leyenda">
+        <span><i class="ln betun"></i>Betún</span><span><i class="ln solucion"></i>Solución jabonosa</span>
+        <span><i class="ln agua"></i>Agua de limpieza</span><span><i class="ln emulsion"></i>Emulsión</span>
+        <span class="rojo">Rojo: fuera de banda</span><span class="morado">Morado: señalado por el autoencoder</span>
       </div>
-      <div class="tabla-scroll" id="tabla-alarmas"></div>
     </div>
-  </section>
 
-  <!-- ======================= MANTENIMIENTO ======================= -->
-  <section class="vista" data-panel="mantenimiento" hidden>
-    <div class="bloque" id="bloque-nuevo-mant" data-nivel="3" hidden>
-      <div class="bloque-cab"><h2>Registrar mantenimiento</h2>
-        <p>Cada registro sirve como etiqueta real para reentrenar los modelos</p></div>
-      <form id="form-mant" class="form-grid">
-        <div class="campo"><label for="m-componente">Componente</label>
-          <input id="m-componente" required minlength="2" maxlength="60" placeholder="Ej.: F-101 filtro"></div>
-        <div class="campo"><label for="m-tipo">Tipo</label>
-          <select id="m-tipo"><option value="correctivo">Correctivo</option><option value="preventivo">Preventivo</option><option value="predictivo">Predictivo</option></select></div>
-        <div class="campo"><label for="m-falla">Falla asociada</label><select id="m-falla"></select></div>
-        <div class="campo"><label for="m-inicio">Inicio</label><input id="m-inicio" type="datetime-local" required></div>
-        <div class="campo"><label for="m-fin">Término</label><input id="m-fin" type="datetime-local"></div>
-        <div class="campo ancho"><label for="m-desc">Descripción</label><textarea id="m-desc" maxlength="2000" placeholder="Qué se hizo y qué se encontró"></textarea></div>
-        <div class="acciones ancho"><button class="btn btn-primario" type="submit">Registrar mantenimiento</button><span id="msg-mant"></span></div>
-      </form>
-    </div>
-    <div class="bloque">
-      <div class="bloque-cab"><h2>Historial</h2></div>
-      <div class="tabla-scroll" id="tabla-mant"></div>
-    </div>
-  </section>
+    <div class="medidores" id="medidores-der"></div>
+  </div>
 
-  <!-- ======================= USUARIOS ======================= -->
-  <section class="vista" data-panel="usuarios" hidden>
-    <div class="bloque">
-      <div class="bloque-cab"><h2>Crear usuario</h2><p>El usuario deberá cambiar la contraseña temporal en su primer ingreso</p></div>
-      <form id="form-usuario" class="form-grid">
-        <div class="campo"><label for="u-nombre">Nombre</label><input id="u-nombre" required minlength="2" maxlength="120"></div>
-        <div class="campo"><label for="u-email">Correo</label><input id="u-email" type="email" required maxlength="150"></div>
-        <div class="campo"><label for="u-rol">Rol</label>
-          <select id="u-rol"><option value="visualizador">Visualizador</option><option value="operador">Operador</option><option value="supervisor">Supervisor</option><option value="administrador">Administrador</option></select></div>
-        <div class="campo"><label for="u-clave">Contraseña temporal</label><input id="u-clave" type="text" required minlength="8" maxlength="72" autocomplete="off"></div>
-        <div class="acciones ancho"><button class="btn btn-primario" type="submit">Crear usuario</button><span id="msg-usuario"></span></div>
-      </form>
+  <div class="tendencias" id="tendencias">
+    <div class="tarjeta tendencia"><div class="tend-cab"><h3></h3><span class="tend-valor"></span></div><div class="grafico"></div><p class="nota"></p></div>
+    <div class="tarjeta tendencia"><div class="tend-cab"><h3></h3><span class="tend-valor"></span></div><div class="grafico"></div><p class="nota"></p></div>
+    <div class="tarjeta tendencia"><div class="tend-cab"><h3></h3><span class="tend-valor"></span></div><div class="grafico"></div><p class="nota"></p></div>
+  </div>
+
+  <div class="fila4">
+    <div class="tarjeta" id="card-diagnostico"><h3>Diagnóstico actual</h3><div class="contenido"></div></div>
+    <div class="tarjeta" id="card-alarmas"><h3>Alarmas activas</h3><div class="contenido"></div>
+      <p class="nota">Una alarma se activa cuando la condición aparece en 3 de los últimos 5 minutos con datos.</p></div>
+    <div class="tarjeta" id="card-riesgo"><h3>Riesgo de falla</h3><div class="contenido"></div>
+      <button class="btn btn-oscuro" data-ir="prediccion">Ver predicción completa</button></div>
+    <div class="tarjeta" id="card-indicadores"><h3>Indicadores del día</h3><div class="contenido"></div></div>
+  </div>
+</section>
+
+<!-- =============================== PREDICCIÓN =============================== -->
+<section class="vista" id="vista-prediccion" hidden>
+  <div class="tarjeta">
+    <h3>Semáforo de riesgo por equipo</h3>
+    <div class="tabla-scroll">
+      <table class="tabla semaforo">
+        <thead><tr><th>Falla</th><th>Método</th><th>24 h</th><th>5 días</th><th>15 días</th><th>Desde la última intervención</th><th>Acción sugerida</th></tr></thead>
+        <tbody id="tabla-semaforo"></tbody>
+      </table>
     </div>
-    <div class="bloque">
-      <div class="bloque-cab"><h2>Usuarios</h2></div>
-      <div class="tabla-scroll" id="tabla-usuarios"></div>
+    <p class="nota">Fallas frecuentes: probabilidad del modelo LightGBM contra su umbral de alerta. Fallas raras: días estimados hasta cruzar el límite físico, proyectando la tendencia de los últimos 7 días. El desgaste acumulado se calcula desde la bitácora de mantenimiento (solo lectura).</p>
+  </div>
+  <div class="tarjeta">
+    <div class="tarjeta-cab">
+      <h3>Evolución del riesgo</h3>
+      <div class="controles">
+        <label>Horizonte <select id="evo-horizonte"><option value="24h">24 horas</option><option value="5d" selected>5 días</option><option value="15d">15 días</option></select></label>
+        <span class="nota">Línea punteada: umbral de alerta de cada falla</span>
+      </div>
     </div>
-    <div class="bloque">
-      <div class="bloque-cab"><h2>Registro de accesos</h2><p>Últimos 50 eventos</p></div>
-      <div class="tabla-scroll" id="tabla-auditoria"></div>
+    <div class="grafico alto" id="graf-evolucion"></div>
+    <p class="nota" id="evo-mensaje"></p>
+  </div>
+</section>
+
+<!-- =============================== ALARMAS =============================== -->
+<section class="vista" id="vista-alarmas" hidden>
+  <div class="alarmas-grid">
+    <div class="tarjeta">
+      <h3>Activas</h3>
+      <div id="lista-activas"></div>
+      <p class="nota">Una alarma se activa cuando la condición aparece en 3 de los últimos 5 minutos con datos y se resuelve cuando aparece en 1 o menos.</p>
     </div>
-  </section>
+    <div class="tarjeta">
+      <h3>Historial de alarmas</h3>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Inicio</th><th>Fin</th><th>Alarma</th><th>Prioridad</th><th>Origen</th><th>Duración</th></tr></thead>
+          <tbody id="tabla-historial"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =============================== SALUD =============================== -->
+<section class="vista" id="vista-salud" hidden>
+  <div class="kpis" id="kpis-salud"></div>
+  <div class="tarjeta">
+    <h3>Índice de salud del molino por día</h3>
+    <div class="grafico alto" id="graf-salud"></div>
+    <p class="nota">Línea punteada: umbral de anomalía · rojo: días sobre el umbral. Una subida sostenida del error, sin alarmas, indica degradación progresiva del molino; después de una intervención el índice debería bajar.</p>
+  </div>
+  <div class="tarjeta">
+    <h3>Detalle de los últimos días con molino en marcha</h3>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Día</th><th>Error medio</th><th>Minutos en marcha</th><th>Minutos con falla o anomalía</th></tr></thead>
+        <tbody id="tabla-salud"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- =============================== MANTENIMIENTO =============================== -->
+<section class="vista" id="vista-mantenimiento" hidden>
+  <div class="kpis" id="kpis-mant"></div>
+  <div class="tarjeta">
+    <h3>Estado por equipo</h3>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Equipo</th><th>Correctivas</th><th>Preventivas</th><th>MTBF</th><th>Última intervención</th><th>Hace</th><th>Riesgo a 15 días</th></tr></thead>
+        <tbody id="tabla-equipos"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="tarjeta">
+    <h3>Bitácora de mantenimiento</h3>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Fecha</th><th>Equipo</th><th>Tipo</th><th>Descripción</th></tr></thead>
+        <tbody id="tabla-bitacora"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-oscuro" id="btn-bitacora" hidden>Mostrar toda la bitácora</button>
+    <p class="nota">La bitácora la mantiene la planta fuera del dashboard; el modelo de predicción la lee para calcular el desgaste desde la última intervención.</p>
+  </div>
+</section>
+
+<!-- =============================== SIMULACIÓN =============================== -->
+<section class="vista" id="vista-simulacion" hidden>
+  <div class="tarjeta">
+    <h3>Inyectar una falla sobre la operación real</h3>
+    <p class="texto">Los efectos se aplican encima de los datos reproducidos y pasan por todo el sistema en AWS: IoT Core, la Lambda de inferencia, DynamoDB y la base RDS. Las fallas graduales se desarrollan durante días: usa una velocidad alta y observa en Predicción cuándo sube el riesgo, antes de que la falla aparezca.</p>
+    <button class="btn btn-negro" id="btn-quitar-falla">Quitar falla inyectada</button>
+    <h4>Fallas conocidas, con degradación progresiva</h4>
+    <div class="botonera" id="esc-conocidas"></div>
+    <h4>Fallas que ningún modelo vio</h4>
+    <div class="botonera" id="esc-nuevas"></div>
+  </div>
+  <div class="tarjeta">
+    <h3>Modo de funcionamiento</h3>
+    <p class="texto fuerte">Fija la planta en un modo para ver cómo opera sin esperar el horario real</p>
+    <div class="botonera" id="modos"></div>
+  </div>
+  <div class="tarjeta">
+    <h3>Estado del simulador</h3>
+    <dl class="datos" id="sim-datos"></dl>
+    <p class="nota">En las velocidades altas se publica una lectura cada varios minutos simulados (la Lambda procesa unas 2 lecturas por segundo). El diagnóstico y las alarmas funcionan igual; la predicción es aproximada mientras dure el muestreo.</p>
+  </div>
+</section>
+
+<!-- =============================== USUARIOS =============================== -->
+<section class="vista" id="vista-usuarios" hidden>
+  <div class="tarjeta">
+    <div class="tarjeta-cab">
+      <h3>Usuarios</h3>
+      <button class="btn btn-primario" id="btn-nuevo-usuario">Nuevo usuario</button>
+    </div>
+    <div class="mensaje" id="msg-usuarios" hidden></div>
+    <form class="form-usuario" id="form-usuario" hidden novalidate>
+      <label>Nombre <input id="u-nombre" required minlength="2" maxlength="120"></label>
+      <label>Correo <input id="u-email" type="email" required maxlength="150"></label>
+      <label>Rol <select id="u-rol"><option value="operador">Operador</option><option value="administrador">Administrador</option></select></label>
+      <label>Contraseña temporal <input id="u-clave" type="text" required minlength="8" maxlength="72" autocomplete="off"></label>
+      <div class="acciones"><button class="btn btn-primario" type="submit">Crear</button><button class="btn btn-oscuro" type="button" id="u-cancelar">Cancelar</button></div>
+      <p class="nota">El usuario deberá cambiar la contraseña temporal en su primer ingreso. Entre 8 y 72 caracteres, con letras y números.</p>
+    </form>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Acciones</th></tr></thead>
+        <tbody id="tabla-usuarios"></tbody>
+      </table>
+    </div>
+    <p class="nota">Operador: ve todo el sistema. Administrador: además gestiona usuarios y roles.</p>
+  </div>
+  <div class="tarjeta">
+    <h3>Registro de accesos</h3>
+    <div class="tabla-scroll corta">
+      <table class="tabla">
+        <thead><tr><th>Fecha</th><th>Correo</th><th>IP</th><th>Acción</th><th>Detalle</th></tr></thead>
+        <tbody id="tabla-auditoria"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
 </main>
 
-<dialog id="dlg-reconocer">
-  <form method="dialog" id="form-reconocer">
-    <h2>Reconocer alarma</h2>
-    <p class="tenue" id="dlg-reconocer-texto"></p>
-    <div class="campo"><label for="dlg-comentario">Comentario (qué se revisó o hizo)</label>
-      <textarea id="dlg-comentario" maxlength="250"></textarea></div>
-    <div class="acciones"><button class="btn btn-primario" value="ok">Reconocer alarma</button><button class="btn" value="cancelar" formnovalidate>Cancelar</button></div>
-  </form>
-</dialog>
-
-<dialog id="dlg-clave">
-  <form method="dialog" id="form-clave">
-    <h2>Asignar contraseña temporal</h2>
-    <p class="tenue" id="dlg-clave-texto"></p>
-    <div class="campo"><label for="dlg-clave-valor">Contraseña temporal</label>
-      <input id="dlg-clave-valor" type="text" minlength="8" maxlength="72" autocomplete="off"></div>
-    <div class="acciones"><button class="btn btn-primario" value="ok">Asignar y desbloquear</button><button class="btn" value="cancelar" formnovalidate>Cancelar</button></div>
-  </form>
-</dialog>
-
-<div class="aviso-toast" id="toast" hidden></div>
-
 <script src="/js/vendor/echarts.min.js"></script>
-<script src="/js/vendor/paho-mqtt.min.js"></script>
 <script src="/js/api.js"></script>
 <script src="/js/app.js"></script>
 </body>

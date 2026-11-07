@@ -103,6 +103,14 @@ function Subir-Codigo {
     if ($LASTEXITCODE -ne 0) { Falla "No se pudo empaquetar $BACKEND" }
     Ejecutar-Aws s3 cp $tgz "s3://$BucketName/despliegue/backend.tgz" --only-show-errors | Out-Null
     Ok "Código subido a s3://$BucketName/despliegue/backend.tgz"
+    # El simulador del dashboard reproduce el año 2026: el servidor descarga el dataset desde S3
+    aws s3 ls "s3://$BucketName/despliegue/Dataset_Molino_QLA_Realista.zip" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        $dataset = Join-Path $AQUI "..\Dataset Simulado\Dataset_Molino_QLA_Realista.zip"
+        if (-not (Test-Path $dataset)) { Falla "No se encontró $dataset" }
+        Ejecutar-Aws s3 cp $dataset "s3://$BucketName/despliegue/Dataset_Molino_QLA_Realista.zip" --only-show-errors | Out-Null
+        Ok "Dataset del simulador subido a S3 (34 MB, solo la primera vez)"
+    }
 }
 
 # ------------------------------------------------------------------------------

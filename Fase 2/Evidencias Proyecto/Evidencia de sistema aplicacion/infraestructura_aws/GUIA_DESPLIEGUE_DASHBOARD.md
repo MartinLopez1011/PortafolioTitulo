@@ -54,21 +54,38 @@ Tarda unos 6 a 8 minutos (la primera vez el servidor instala Python y las librer
 
 El script guarda `JWT_SECRET` y `CLAVE_INGESTA` en `C:\Users\nicol\qla_servidor.env`, fuera del repositorio. No lo subas a Git ni lo compartas.
 
-## Probar el flujo completo
+## Probar el flujo completo con el simulador del dashboard
 
-1. Entra al dashboard con el administrador que creaste.
-2. En otra ventana de PowerShell (con el entorno activado) envía telemetría:
-   ```powershell
-   python simular_telemetria_continua.py --intervalo 5 --cantidad 60
-   ```
-3. Comprueba que los resultados llegan a RDS:
-   ```powershell
-   aws logs tail /aws/lambda/qla-persistencia --since 10m
-   ```
-   Debe mostrar líneas `[OK] recibidos=… guardados=…`. En `https://…/docs` puedes probar `GET /api/proceso`.
-4. Para ver una falla: `python simular_telemetria_continua.py --intervalo 5 --cantidad 20 --modo clogged_filter`. La alarma se abre cuando la condición se cumple en 3 de los últimos 5 minutos con datos.
+El simulador corre dentro del servidor y se maneja desde la barra superior del dashboard (Iniciar/Pausar,
+Velocidad, Funcionamiento, Ir a, Inyectar falla) o desde la pestaña **Simulación (demo)**. Reproduce el año
+2026 del dataset y publica cada lectura en IoT Core, el mismo camino que usaría la planta real:
 
-> **Antes de presentar:** envía unas lecturas 10 minutos antes. La primera invocación de la Lambda de inferencia tarda entre 8 y 43 s (arranque en frío); después, unos 150 ms.
+```
+simulador (EC2) → IoT Core → Lambda qla-molino-inferencia → DynamoDB → Lambda qla-persistencia → RDS → dashboard
+```
+
+1. Entra al dashboard y presiona **Iniciar**. La primera vez tarda unos segundos: descarga el dataset,
+   precarga en RDS las 12 h anteriores y deja la ventana de 168 h de la Lambda alineada con la fecha simulada.
+2. Con **Ir a** puedes saltar a un mes o a "3 días antes de" una falla real del año. Al saltar se borra lo
+   simulado posterior a esa fecha, se reconstruye la ventana de la Lambda y se reinicia la Lambda para que no
+   mezcle fechas.
+3. Con **Inyectar falla** eliges un escenario (por ejemplo, *Filtro obstruyéndose*). La alarma se abre cuando
+   la condición se cumple en 3 de los últimos 5 minutos con datos.
+4. Revisa que los resultados llegan a RDS: `aws logs tail /aws/lambda/qla-persistencia --since 10m` debe
+   mostrar líneas `[OK] recibidos=… guardados=…`.
+
+| Velocidad | Qué hace |
+|---|---|
+| Tiempo real | 1 minuto simulado por minuto |
+| 1 minuto por segundo | publica cada minuto (recomendada para mostrar alarmas) |
+| 10 minutos por segundo | publica 1 de cada 5 minutos, 2 lecturas por segundo |
+| 1 hora por segundo | publica 1 de cada 30 minutos; para ver subir el riesgo de fallas graduales |
+
+En las velocidades altas la predicción es aproximada (el modelo recibe menos minutos por hora). No uses a la vez
+`simular_telemetria_continua.py`: publica con la hora actual y el dashboard saltaría a esa fecha.
+
+> **Antes de presentar:** inicia la simulación 10 minutos antes. La primera invocación de la Lambda de
+> inferencia tarda entre 8 y 43 s (arranque en frío); después, unos 150 ms.
 
 ## Uso diario
 
@@ -76,7 +93,7 @@ El script guarda `JWT_SECRET` y `CLAVE_INGESTA` en `C:\Users\nicol\qla_servidor.
 |---|---|
 | Ver direcciones y estado | `.\desplegar_dashboard_aws.ps1 -Accion estado` |
 | Encender el servidor en una nueva sesión del lab | `.\desplegar_dashboard_aws.ps1 -Accion iniciar` |
-| Subir cambios del backend o de la web | `.\desplegar_dashboard_aws.ps1 -Accion actualizar` |
+| Subir cambios del backend o de la web | `.\desplegar_dashboard_aws.ps1 -Accion actualizar` (la primera vez con el simulador tarda 2 a 3 min más: instala pandas y pyarrow) |
 | Apagar el servidor al terminar | `.\desplegar_dashboard_aws.ps1 -Accion detener` |
 
 Al terminar la sesión, el lab apaga la EC2 automáticamente, pero **RDS sigue encendida**. Si no la vas a usar en varios días:

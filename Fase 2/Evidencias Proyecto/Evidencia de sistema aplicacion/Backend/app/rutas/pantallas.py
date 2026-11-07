@@ -238,9 +238,10 @@ def _indicadores_dia(cur, eq, fuente, ts, estado) -> dict:
 # =====================================================================
 def _prediccion_actual(cur, eq, fuente, ts) -> list:
     cur.execute("""SELECT max(ts) AS h FROM mantpred.predicciones
-                   WHERE equipo_id = %s AND fuente = %s AND modelo = 'predictivo' AND ts <= %s""",
-                (eq, fuente, ts))
-    h = cur.fetchone()["h"]
+                   WHERE equipo_id = %s AND fuente = %s AND modelo = 'predictivo' AND ts <= %s
+                     AND ts > %s - interval '72 hours'""",
+                (eq, fuente, ts, ts))
+    h = cur.fetchone()["h"]       # una predicción de hace más de 72 h ya no representa el estado actual
     if h is None:
         return []
     cur.execute(

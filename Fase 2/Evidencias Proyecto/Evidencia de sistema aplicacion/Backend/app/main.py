@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg_pool import PoolTimeout
 
 from . import config, db
-from .rutas import auth, ingesta, pantallas, planta, usuarios
+from .rutas import auth, ingesta, pantallas, planta, simulacion, usuarios
 
 
 @asynccontextmanager
@@ -66,6 +66,7 @@ app.include_router(usuarios.router, prefix="/api")
 app.include_router(planta.router, prefix="/api")
 app.include_router(pantallas.router, prefix="/api")
 app.include_router(ingesta.router, prefix="/api")
+app.include_router(simulacion.router, prefix="/api")
 
 # La web (login y dashboard) se sirve desde la misma API: http://127.0.0.1:8000
 # Se monta al final para que las rutas /api tengan prioridad.
