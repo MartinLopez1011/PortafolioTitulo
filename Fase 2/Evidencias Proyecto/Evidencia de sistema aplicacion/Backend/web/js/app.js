@@ -620,12 +620,12 @@
 
     // 1. Canal WebSocket en vivo
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProto}//${location.host}/api/ws/telemetria`;
+    const wsUrl = `${wsProto}//${location.host}/api/ws/telemetria?token=${encodeURIComponent(Sesion.token || "")}`;
 
     try {
       wsLocal = new WebSocket(wsUrl);
       wsLocal.onopen = () => {
-        console.info("Canal en vivo WebSocket conectado:", wsUrl);
+        console.info("Canal en vivo WebSocket conectado");
         actualizarBadgeTiempoReal(true);
       };
       wsLocal.onmessage = (ev) => {

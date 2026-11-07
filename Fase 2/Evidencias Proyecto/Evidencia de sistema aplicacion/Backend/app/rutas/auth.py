@@ -1,4 +1,6 @@
 """Inicio de sesión, datos del usuario y cambio de contraseña."""
+import hmac
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
@@ -24,12 +26,12 @@ class CambioClave(BaseModel):
 
 @router.post("/login", summary="Iniciar sesión y obtener un token")
 def login(datos: LoginEntrada, request: Request):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
+        # Modo demostración: solo usuarios de ejemplo y con la clave DEMO_CLAVE del .env
         from .. import demo_store
         u = demo_store.USUARIOS.get(datos.email.strip().lower())
-        if not u:
-            u = demo_store.USUARIOS["admin@demo.qla.cl"]
+        if u is None or not hmac.compare_digest(datos.clave.encode(), config.DEMO_CLAVE.encode()):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, CREDENCIALES_INVALIDAS)
         return {
             "access_token": crear_token(u),
             "token_type": "bearer",
@@ -99,9 +101,8 @@ def me(u: dict = Depends(usuario_actual)):
 
 @router.post("/cambiar-clave", summary="Cambiar la contraseña propia")
 def cambiar_clave(datos: CambioClave, request: Request, u: dict = Depends(usuario_actual)):
-    from .. import db
-    if db.MODO_DEMO:
-        return {"mensaje": "Contraseña actualizada (modo demostración)"}
+    if config.MODO_DEMO:
+        raise HTTPException(409, "En modo demostración no se cambian contraseñas")
     validar_clave_nueva(datos.clave_nueva)
     if datos.clave_nueva == datos.clave_actual:
         raise HTTPException(422, "La contraseña nueva debe ser distinta de la actual")

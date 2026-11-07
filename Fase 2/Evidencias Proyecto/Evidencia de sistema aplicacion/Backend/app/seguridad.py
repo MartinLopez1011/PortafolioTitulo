@@ -1,5 +1,6 @@
 """Contraseñas (bcrypt), tokens de sesión (JWT) y control de acceso por rol."""
 import datetime as dt
+import hmac
 import ipaddress
 import re
 
@@ -11,8 +12,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from . import config
 from .db import cursor
 
-# Niveles de acceso (igual que la tabla mantpred.roles)
-VISUALIZADOR, OPERADOR, SUPERVISOR, ADMINISTRADOR = 1, 2, 3, 4
+# Niveles de acceso (igual que la tabla mantpred.roles). Desde la migración v3 hay dos roles:
+# el operador ve todo el sistema y el administrador además gestiona usuarios y roles.
+OPERADOR, ADMINISTRADOR = 2, 4
 
 _bearer = HTTPBearer(auto_error=False, description="Token obtenido en /api/auth/login")
 
@@ -69,10 +71,12 @@ def usuario_actual(cred: HTTPAuthorizationCredentials | None = Depends(_bearer))
         raise _no_autorizado("La sesión expiró; inicie sesión nuevamente")
     except jwt.InvalidTokenError:
         raise _no_autorizado("Token inválido")
-    from . import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from . import demo_store
-        return demo_store.USUARIOS.get("admin@demo.qla.cl")
+        u = next((x for x in demo_store.USUARIOS.values() if str(x["id"]) == datos.get("sub")), None)
+        if u is None:
+            raise _no_autorizado("Usuario no habilitado")
+        return u
 
     with cursor() as cur:
         cur.execute(
@@ -100,6 +104,23 @@ def requiere_nivel(nivel: int):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Su rol no tiene permiso para esta acción")
         return u
     return _dep
+
+
+def clave_ingesta_valida(clave_recibida: str | None) -> bool:
+    """Compara la clave del encabezado X-Clave-Ingesta en tiempo constante."""
+    if not config.CLAVE_INGESTA or not clave_recibida:
+        return False
+    return hmac.compare_digest(clave_recibida.encode(), config.CLAVE_INGESTA.encode())
+
+
+def token_valido(token: str | None) -> dict | None:
+    """Valida un token recibido fuera del encabezado (por ejemplo, en el WebSocket)."""
+    if not token:
+        return None
+    try:
+        return jwt.decode(token, config.JWT_SECRET, algorithms=["HS256"])
+    except jwt.InvalidTokenError:
+        return None
 
 
 # ---------------------------------------------------------------- auditoría
