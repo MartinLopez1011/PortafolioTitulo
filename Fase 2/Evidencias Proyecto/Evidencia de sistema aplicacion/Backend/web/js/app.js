@@ -568,6 +568,7 @@
   }
   $("sim-play").addEventListener("click", () => controlar(sim && sim.corriendo ? "pausar" : "iniciar"));
   $("sim-velocidad").addEventListener("change", (e) => controlar("velocidad", e.target.value));
+  $("sim-saltar").addEventListener("change", (e) => controlar("saltar_paradas", e.target.checked ? "1" : "0"));
   $("sim-modo").addEventListener("change", (e) => controlar("modo", e.target.value));
   $("sim-escenario").addEventListener("change", (e) => controlar("escenario", e.target.value));
   $("sim-ir").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (v) controlar("ir_a", v); });
@@ -579,6 +580,8 @@
     play.textContent = sim.corriendo ? "Pausar" : "Iniciar";
     if (opciones) {
       $("sim-velocidad").value = sim.velocidad;
+      $("sim-saltar").checked = !!sim.saltar_paradas;
+      $("sim-saltar").disabled = !!sim.modo;
       $("sim-modo").value = sim.modo || "";
       $("sim-escenario").value = sim.escenario ? sim.escenario.clave : "";
     }
@@ -596,6 +599,7 @@
     const fila = (a, b) => [el("dt", {}, a), el("dd", {}, b)];
     vaciar(dl, fila("Estado", sim.preparando ? "Preparando: " + sim.preparando : sim.corriendo ? "En marcha" : "En pausa"),
       fila("Fecha simulada", sim.tiempo ? fFechaHora(sim.tiempo) : "—"),
+      fila("Saltar paradas", sim.modo ? "No aplica (modo fijo)" : sim.saltar_paradas ? "Sí: detenida, espera y preparación a 1 hora por segundo" : "No"),
       fila("Velocidad", (opciones && (opciones.velocidades.find((v) => v.clave === sim.velocidad) || {}).texto) || sim.velocidad),
       fila("Publicación", sim.publicacion === "iot" ? "AWS IoT Core → Lambda de inferencia → DynamoDB → RDS" : "Local (solo lecturas, sin modelos)"),
       fila("Lecturas publicadas", String(sim.publicados)),

@@ -116,6 +116,8 @@ button, input, select { font: inherit; color: inherit; }
 }
 .barra-sim label { display: flex; align-items: center; gap: 10px; color: var(--texto-2); font-size: 15px; }
 .barra-sim .btn-primario { min-width: 104px; }
+.barra-sim .check { color: var(--texto); cursor: pointer; gap: 8px; }
+.barra-sim .check input { width: 18px; height: 18px; accent-color: var(--ambar); cursor: pointer; }
 select {
   background: var(--panel); border: 1px solid var(--borde-2); border-radius: 6px; padding: 8px 30px 8px 12px;
   color: var(--texto); appearance: none; cursor: pointer; max-width: 260px;

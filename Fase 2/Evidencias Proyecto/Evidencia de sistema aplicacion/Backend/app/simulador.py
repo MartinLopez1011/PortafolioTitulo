@@ -163,6 +163,7 @@ class Simulador:
         self.pos = 0
         self.reloj = None                    # instante simulado (pd.Timestamp UTC)
         self.velocidad = "1m"
+        self.saltar_paradas = True           # con el calendario real, las paradas pasan a 1 hora por segundo
         self.corriendo = False
         self.preparando = None               # texto mientras se prepara un salto de fecha
         self.modo = None
@@ -334,7 +335,12 @@ class Simulador:
         while True:
             with self._lock:
                 activo = self.corriendo and not self.preparando
-                vel = VELOCIDADES[self.velocidad]
+                vel = dict(VELOCIDADES[self.velocidad])
+                if (activo and self.saltar_paradas and not self.modo and self.df is not None
+                        and str(self.df["ESTADO_operacion"].iat[self.pos]) not in ESTADOS_MARCHA):
+                    # Planta detenida, en espera o en preparación: avanza 1 hora por segundo
+                    vel["paso"] = max(vel["paso"], 30)
+                    vel["intervalo"] = min(vel["intervalo"], 0.5)
             if not activo:
                 time.sleep(0.2)
                 continue
@@ -466,7 +472,7 @@ class Simulador:
     def estado(self) -> dict:
         e = self.escenario
         out = {"disponible": self.df is not None, "corriendo": self.corriendo, "preparando": self.preparando,
-               "velocidad": self.velocidad, "modo": self.modo, "tiempo": self.reloj.isoformat() if self.reloj is not None else None,
+               "velocidad": self.velocidad, "modo": self.modo, "saltar_paradas": self.saltar_paradas, "tiempo": self.reloj.isoformat() if self.reloj is not None else None,
                "etiqueta_real": self.etiqueta, "publicacion": self.publicar_modo, "publicados": self.publicados,
                "error": self.ultimo_error, "aviso": self.aviso,
                "escenario": None}
@@ -508,6 +514,8 @@ class Simulador:
                 self.errores_seguidos = 0
             elif accion == "pausar":
                 self.corriendo = False
+            elif accion == "saltar_paradas":
+                self.saltar_paradas = valor in ("1", "true", "si", "sí")
             elif accion == "velocidad":
                 if valor not in VELOCIDADES:
                     raise ValueError("Velocidad desconocida")

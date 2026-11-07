@@ -14,7 +14,7 @@ lector = requiere_nivel(OPERADOR)
 
 
 class Control(BaseModel):
-    accion: Literal["iniciar", "pausar", "velocidad", "ir_a", "modo", "escenario"]
+    accion: Literal["iniciar", "pausar", "velocidad", "saltar_paradas", "ir_a", "modo", "escenario"]
     valor: str | None = None
 
 
