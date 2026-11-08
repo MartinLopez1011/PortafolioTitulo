@@ -1,64 +1,81 @@
 # Base de datos – Mantenimiento Predictivo QLA
 
 Esquema PostgreSQL del sistema de mantenimiento predictivo del molino coloidal MC-01
-(Química Latinoamericana S.A.). Alojado en Supabase, esquema `mantpred`.
+(Química Latinoamericana S.A.). Alojado en **Amazon RDS** (`qla-mantpred`, us-east-1), esquema `mantpred`.
 
 Responsable: Nicolás (Ingeniería de datos y backend)
-Versión: 2 — basada en el esquema original de Franco Carvajal
-Creada en Supabase: 07-10-2026
+Versión: 4 — basada en el esquema original de Franco Carvajal (v1/v2 en Supabase, migrado a RDS en v3)
+
+![Diagrama entidad-relación v4](diagrama/bd_mantpred_v4.png)
+
+- Diagrama en alta resolución: [`diagrama/bd_mantpred_v4.pdf`](diagrama/bd_mantpred_v4.pdf) · [`.svg`](diagrama/bd_mantpred_v4.svg)
+- Descripción de cada tabla y columna: [`DICCIONARIO_DATOS.md`](DICCIONARIO_DATOS.md)
 
 ## Contenido
 
 | Archivo | Qué es |
 | --- | --- |
-| `bd_mantenimiento_predictivo_v2.sql` | Crea el esquema completo: 14 tablas, 2 vistas, 1 función, seguridad (RLS) y datos iniciales |
-| `cargar_datos.py` | Carga una ventana del dataset simulado MC-01 en `lecturas` y `estados_equipo` (`fuente = 'simulado'`) |
-| `.env.example` | Plantilla de la conexión a Supabase (copiar como `.env`, que no se sube al repositorio) |
-| `requirements.txt` | Dependencias del script: `pandas` y `psycopg[binary]` |
+| `bd_mantenimiento_predictivo_v2.sql` | Esquema base (v2): tablas, seguridad (RLS) y datos iniciales |
+| `migracion_v3.sql` | v3: reglas de alarma, condiciones por minuto, columnas de origen/fuente, 2 roles |
+| `migracion_v4.sql` | v4: normalización final (ver abajo). Una sola transacción |
+| `ejecutar_sql.py` | Ejecuta un archivo .sql contra RDS usando el archivo de conexión local |
+| `crear_admin.py` | Crea el primer usuario administrador |
+| `cargar_datos.py` | Carga una ventana del dataset simulado MC-01 en `lecturas` y `estados_equipo` |
+| `requirements.txt` | Dependencias de los scripts |
 
-## Qué crea el script
+Para crear la base desde cero: `v2` → `migracion_v3.sql` → `migracion_v4.sql`.
 
-- **Acceso:** `roles` (administrador, supervisor, operador, visualizador), `usuarios` (clave bcrypt), `auditoria_accesos`
-- **Planta y sensores:** `equipos` (MC-01), `sensores` (6 reales del SCADA + 41 simulados del dataset), `lecturas` (1 fila por sensor por minuto, columna `fuente` = real / simulado), `estados_equipo`, `tipos_emulsion`, `setpoints`, `lotes_produccion`
-- **Fallas y mantenimiento:** `tipos_falla` (7 fallas del modelo + anomalía), `alarmas`, `predicciones`, `mantenimientos`
-- **Vistas:** `v_ultima_lectura` (último valor por sensor, para el dashboard), `v_alarmas_activas`
-- **Función:** `purgar_lecturas_simuladas(dias)` — borra lecturas simuladas antiguas (plan gratis = 500 MB)
+## Las 16 tablas, por área
 
-## Cómo ejecutarlo
+- **Planta y sensores (6):** `equipos`, `componentes`, `sensores`, `lecturas`, `estados_equipo`, `rangos_operacion`
+- **Modelos de IA (2):** `tipos_falla` (7 fallas + anomalía), `predicciones` (los 3 modelos)
+- **Alarmas (3):** `reglas_alarma` (8 reglas fijas), `alarmas`, `condiciones_minuto`
+- **Mantenimiento (2):** `mantenimientos`, `mantenimiento_fallas`
+- **Usuarios y acceso (3):** `roles` (operador, administrador), `usuarios` (clave bcrypt), `auditoria_accesos`
 
-1. Supabase → SQL Editor → pegar todo el archivo → Run.
-2. Verificar:
-   ```sql
-   SELECT count(*) FROM mantpred.sensores;     -- 47
-   SELECT count(*) FROM mantpred.tipos_falla;  -- 8
-   ```
-3. Para recrear desde cero, descomentar `DROP SCHEMA IF EXISTS mantpred CASCADE;` al inicio.
+## Qué cambió en v4 y por qué
+
+| Cambio | Motivo |
+| --- | --- |
+| Nueva tabla `componentes` (11 tags de planta: TK-101, P-101, MC-01…) | El componente se guardaba como texto libre repetido en 4 tablas. Ahora es una FK: sin errores de tipeo y con integridad |
+| `sensores`, `tipos_falla` y `mantenimientos` apuntan a `componentes` | Mismo motivo (3FN) |
+| Nueva tabla `mantenimiento_fallas` (N:M) | Una preventiva atiende varias fallas a la vez; antes cabía solo una en `mantenimientos.tipo_falla_id` |
+| Se eliminan `setpoints`, `lotes_produccion`, `tipos_emulsion` | Nunca se usaron: el dataset no trae lotes ni recetas |
+| Se eliminan columnas sin uso (`canal_plc`, `vida_util_horas`, `alarmas.sensor_id`, `alarmas.setpoint_id`) | El sensor de una alarma se obtiene por su regla; las otras no las produce ningún proceso |
+| Se eliminan las vistas `v_ultima_lectura`, `v_alarmas_activas` y la función antigua `purgar_lecturas_simuladas` | El backend no las usa; la limpieza queda en `purgar_datos_simulados(dias)` (de v3), que borra lo simulado antiguo de todas las series de tiempo |
+| CHECK por modelo en `predicciones` | El predictivo exige falla; el autoencoder no tiene falla ni probabilidad; el diagnóstico no tiene error de reconstrucción |
+| CHECK en `alarmas` (`origen` regla/modelo, coherencia regla ↔ origen) | Impide filas inconsistentes |
+| `COMMENT` en todas las tablas y columnas clave | Documentación dentro de la propia base |
+
+## Aplicar una migración en RDS
+
+```
+cd "Base de Datos"
+python ejecutar_sql.py migracion_v4.sql --env "$HOME\qla_rds.env"
+```
+
+El archivo de conexión vive fuera del repositorio. Si algo falla, la transacción se revierte completa.
 
 ## Cómo se conecta cada parte
 
-- **Pipeline IoT / AWS:** inserta en `lecturas` (y `estados_equipo`).
-- **Modelos:** leen `lecturas`, escriben en `predicciones` y `alarmas` (origen = 'modelo').
-- **Backend / web:** lee todo; gestiona `usuarios`, `alarmas` reconocidas y `mantenimientos`.
+- **Simulador / IoT Core / Lambda:** la Lambda escribe la inferencia en DynamoDB; el backend la recoge y la guarda en `lecturas`, `estados_equipo`, `predicciones`, `condiciones_minuto` y `alarmas`.
+- **Backend / web:** lee todo; gestiona `usuarios`, el reconocimiento de `alarmas` y los `mantenimientos`.
 
-El esquema no está expuesto por la API pública de Supabase (RLS activo, sin políticas):
-solo se accede con conexión directa a PostgreSQL desde el backend.
+RLS activo y sin políticas: solo se accede con conexión directa desde el backend.
 
 ## Importante
 
-- Incluye 4 usuarios de prueba (`@demo.qla.cl`). **Se borran antes de la entrega final.**
-- Nunca subir al repositorio la contraseña de la base ni la cadena de conexión de Supabase.
+- Los usuarios de prueba `@demo.qla.cl` se borran antes de la entrega final.
+- Nunca subir al repositorio la contraseña de la base ni la cadena de conexión.
 
-## Cargar datos simulados
+## Cargar datos simulados (opcional)
 
 ```
 pip install -r requirements.txt
-python cargar_datos.py --csv RUTA/Dataset_Molino_QLA_Realista.zip --dry-run   # solo muestra qué cargaría
-python cargar_datos.py --csv RUTA/Dataset_Molino_QLA_Realista.zip             # carga 14 días desde 2026-05-27
+python cargar_datos.py --csv RUTA/Dataset_Molino_QLA_Realista.zip --dry-run
+python cargar_datos.py --csv RUTA/Dataset_Molino_QLA_Realista.zip
 ```
 
-- Es seguro repetirlo: lo ya cargado se omite. Carga un día a la vez y se puede retomar si se corta.
-- Otra ventana: `--inicio 2026-09-19 --dias 14`. Borrar lo simulado antes de cargar: `--reemplazar`.
-- Tamaño medido: 826.560 lecturas (14 días) = 140 MB de los 500 MB del plan gratis (~170 bytes por lectura).
-  Para liberar espacio: `SELECT mantpred.purgar_lecturas_simuladas(7);`
+- Es seguro repetirlo: lo ya cargado se omite. Otra ventana: `--inicio 2026-09-19 --dias 14`; `--reemplazar` borra lo simulado antes.
 - La etiqueta de falla del dataset (`LABEL_Estado_Planta`) no se carga: en la planta real no existe.
 - Las horas del dataset se interpretan como hora de Chile y se guardan en UTC.

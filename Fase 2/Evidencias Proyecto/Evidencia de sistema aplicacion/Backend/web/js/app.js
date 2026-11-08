@@ -601,8 +601,9 @@
       fila("Fecha simulada", sim.tiempo ? fFechaHora(sim.tiempo) : "—"),
       fila("Saltar paradas", sim.modo ? "No aplica (modo fijo)" : sim.saltar_paradas ? "Sí: detenida, espera y preparación a 1 hora por segundo" : "No"),
       fila("Velocidad", (opciones && (opciones.velocidades.find((v) => v.clave === sim.velocidad) || {}).texto) || sim.velocidad),
-      fila("Publicación", sim.publicacion === "iot" ? "AWS IoT Core → Lambda de inferencia → DynamoDB → RDS" : "Local (solo lecturas, sin modelos)"),
+      fila("Publicación", sim.publicacion === "iot" ? "AWS IoT Core → Lambda de inferencia → DynamoDB → servidor → RDS" : "Local (solo lecturas, sin modelos)"),
       fila("Lecturas publicadas", String(sim.publicados)),
+      sim.publicacion === "iot" ? fila("Resultados de los modelos guardados", `${sim.recolectados || 0} (esperando ${sim.pendientes || 0}, descartados ${sim.descartados || 0})`) : null,
       fila("Etiqueta real del dataset", (sim.etiqueta_real || "—").replace(/_/g, " ")),
       sim.error ? fila("Último error", sim.error) : null);
   }

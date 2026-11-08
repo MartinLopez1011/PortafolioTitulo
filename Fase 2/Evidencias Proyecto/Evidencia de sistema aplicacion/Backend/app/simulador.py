@@ -17,6 +17,11 @@ Al saltar de fecha (Ir a), el simulador:
   2. reconstruye en S3 la ventana de 168 h y el estado de la bitácora que usa la Lambda;
   3. reinicia la Lambda para que descarte la ventana que tenía en memoria.
 
+Recolección de resultados: el Learner Lab bloquea DynamoDB Streams (política de AWS Academy), así que
+el propio servidor busca en DynamoDB el resultado de cada lectura que publicó y lo guarda en RDS. Solo
+acepta el resultado si sus valores coinciden con los publicados, para no tomar uno antiguo del mismo minuto.
+En una cuenta sin esa restricción se puede usar el camino DynamoDB Stream → Lambda qla-persistencia.
+
 Modo de publicación (variable SIM_PUBLICAR):
   iot   (por defecto) publica en IoT Core.
   local guarda solo las lecturas en la base, sin modelos (para pruebas sin AWS).
@@ -41,6 +46,9 @@ log = logging.getLogger("simulador")
 TOPIC = "planta/asfalto/molino/telemetria"
 EQUIPO_IOT = "MOLINO_QLA_01"
 LAMBDA_INFERENCIA = "qla-molino-inferencia"
+TABLA_DYNAMO = "QLA_Molino_Telemetria"
+ESPERA_MAXIMA_S = 120          # si la Lambda no deja el resultado en este tiempo, la lectura se descarta
+SENSORES_CONTROL = ("TEM_son_betum_in", "PRE_dif_filtro_bar", "AMP_cau_solucion_in", "CAU_bomba_lpm")
 ARCHIVO_DATASET = "Dataset_Molino_QLA_Realista.zip"
 CLAVE_S3_DATASET = "despliegue/" + ARCHIVO_DATASET
 CLAVE_S3_VENTANA = "ventana_activa/ultimas_168_horas.parquet"
@@ -181,6 +189,10 @@ class Simulador:
         self.publicar_modo = config.SIM_PUBLICAR
         self._preparado = False              # S3 y la Lambda ya están alineados con la fecha simulada
         self._aws = {}
+        self._pendientes = {}                # epoch -> (lectura publicada, instante de publicación)
+        self._hilo_recolector = None
+        self.recolectados = 0
+        self.descartados = 0
 
     # ------------------------------------------------------------------ AWS
     def _cliente(self, nombre):
@@ -320,6 +332,8 @@ class Simulador:
                        "lectura_actual": {k: lect[k] for k in SENSORES_29 + ["ESTADO_operacion", "TIPO_asfalto"]
                                           if k in lect}}
             self._cliente("iot-data").publish(topic=TOPIC, qos=1, payload=json.dumps(payload))
+            with self._lock:
+                self._pendientes[epoch] = (payload["lectura_actual"], time.monotonic())
             extras = {k: v for k, v in lect.items() if k not in SENSORES_29 and k not in
                       ("ESTADO_operacion", "TIPO_asfalto")}
             with cursor() as cur:
@@ -369,17 +383,76 @@ class Simulador:
             if self._hilo is None or not self._hilo.is_alive():
                 self._hilo = threading.Thread(target=self._ciclo, name="simulador", daemon=True)
                 self._hilo.start()
+            if self.publicar_modo == "iot" and (self._hilo_recolector is None or not self._hilo_recolector.is_alive()):
+                self._hilo_recolector = threading.Thread(target=self._recolector, name="recolector", daemon=True)
+                self._hilo_recolector.start()
+
+    # ------------------------------------------------------------------ resultados desde DynamoDB
+    def _recolector(self):
+        """Cada segundo busca en DynamoDB los resultados de las lecturas publicadas y los guarda en RDS,
+        en orden de tiempo (las alarmas 3 de 5 necesitan el orden)."""
+        while True:
+            time.sleep(1.0)
+            with self._lock:
+                pendientes = sorted(self._pendientes.items())
+            if not pendientes:
+                continue
+            try:
+                encontrados = self._buscar_en_dynamo([e for e, _ in pendientes[:100]])
+                ahora = time.monotonic()
+                listos = []
+                for epoch, (publicada, t_pub) in pendientes[:100]:
+                    item = encontrados.get(epoch)
+                    if item is not None and _coincide(item.get("lectura") or {}, publicada):
+                        listos.append((epoch, item))
+                    elif ahora - t_pub > ESPERA_MAXIMA_S:
+                        listos.append((epoch, None))      # no llegó a tiempo: se descarta
+                    else:
+                        break                              # se respeta el orden: espera a la más antigua
+                if not listos:
+                    continue
+                with cursor() as cur:
+                    for epoch, item in listos:
+                        if item is not None:
+                            persistencia.guardar_registro(cur, item, "simulado", config.EQUIPO_POR_DEFECTO)
+                with self._lock:
+                    for epoch, item in listos:
+                        self._pendientes.pop(epoch, None)
+                        if item is None:
+                            self.descartados += 1
+                        else:
+                            self.recolectados += 1
+            except Exception as e:
+                self.ultimo_error = f"Al leer resultados de DynamoDB: {type(e).__name__}: {e}"[:300]
+                log.warning("Recolector: %s", self.ultimo_error)
+                time.sleep(4)
+
+    def _buscar_en_dynamo(self, epochs: list) -> dict:
+        from decimal import Decimal
+        if "dynamo" not in self._aws:
+            import boto3
+            self._aws["dynamo"] = boto3.resource("dynamodb", region_name=config.AWS_REGION)
+        res = self._aws["dynamo"].batch_get_item(RequestItems={TABLA_DYNAMO: {
+            "Keys": [{"equipo_id": EQUIPO_IOT, "timestamp": e} for e in epochs], "ConsistentRead": True}})
+        items = res.get("Responses", {}).get(TABLA_DYNAMO, [])
+
+        def plano(v):
+            if isinstance(v, Decimal):
+                return int(v) if v == v.to_integral_value() else float(v)
+            if isinstance(v, dict):
+                return {k: plano(x) for k, x in v.items()}
+            if isinstance(v, list):
+                return [plano(x) for x in v]
+            return v
+        return {int(i["timestamp"]): plano(i) for i in items}
 
     # ------------------------------------------------------------------ bitácora y ventana de la Lambda
     def _bitacora_en(self, cur, t: dt.datetime) -> dict:
-        from .rutas.pantallas import EQUIPOS      # mismo criterio que la pantalla de Mantenimiento
+        from .rutas.pantallas import EQUIPOS, SQL_INTERVENCIONES   # mismo criterio que la pantalla de Mantenimiento
         eq = persistencia._catalogos(cur)["equipos"][config.EQUIPO_POR_DEFECTO]
         res = {}
         for e in EQUIPOS:
-            cur.execute("""SELECT max(fecha_inicio) AS f FROM mantpred.mantenimientos
-                           WHERE equipo_id = %s AND fuente = 'simulado' AND fecha_inicio <= %s
-                             AND (componente = %s OR (tipo = 'preventivo' AND descripcion ILIKE %s))""",
-                        (eq, t, e["equipo"], f"%{e['preventiva']}%"))
+            cur.execute("SELECT max(m.fecha_inicio) AS f" + SQL_INTERVENCIONES, (eq, "simulado", t, e["falla"]))
             f = cur.fetchone()["f"]
             if f:
                 iso = f.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -464,6 +537,8 @@ class Simulador:
             self.preparando = None
 
     def _saltar(self, t: pd.Timestamp, motivo: str):
+        with self._lock:
+            self._pendientes.clear()        # lo publicado antes del salto ya no corresponde
         self.preparando = motivo
         self._preparado = True
         threading.Thread(target=self._preparar, args=(t,), daemon=True).start()
@@ -475,6 +550,8 @@ class Simulador:
                "velocidad": self.velocidad, "modo": self.modo, "saltar_paradas": self.saltar_paradas, "tiempo": self.reloj.isoformat() if self.reloj is not None else None,
                "etiqueta_real": self.etiqueta, "publicacion": self.publicar_modo, "publicados": self.publicados,
                "error": self.ultimo_error, "aviso": self.aviso,
+               "recolectados": self.recolectados, "pendientes": len(self._pendientes),
+               "descartados": self.descartados,
                "escenario": None}
         if e:
             trans = self.contador - self.esc_inicio
@@ -547,6 +624,17 @@ class Simulador:
             else:
                 raise ValueError("Acción desconocida")
         return self.estado()
+
+
+def _coincide(guardada: dict, publicada: dict) -> bool:
+    """El resultado de DynamoDB corresponde a esta lectura si sus sensores de control son iguales."""
+    for s in SENSORES_CONTROL:
+        a, b = guardada.get(s), publicada.get(s)
+        if a is None or b is None:
+            continue
+        if abs(float(a) - float(b)) > 1e-3:
+            return False
+    return True
 
 
 def _guardar_extras(cur, t: dt.datetime, extras: dict) -> None:

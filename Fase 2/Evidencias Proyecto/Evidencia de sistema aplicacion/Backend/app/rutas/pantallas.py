@@ -26,24 +26,23 @@ ORDEN_PRIORIDAD = {"alta": 0, "media": 1, "baja": 2}
 FALLAS_FRECUENTES = ("Sobrecarga_Motor_Por_Asfalto_Frio", "Filtro_Obstruido", "Advertencia_Radar_Sucio_Betun")
 HORIZONTES = ("24h", "5d", "15d")
 
-# Equipo que se interviene por cada falla. 'bitacora' es el nombre del equipo en la bitácora de la
-# planta y 'preventiva' el texto con que aparece en las mantenciones mensuales (igual que el Modelo 3).
+# Punto de mantención de cada modo de falla. 'clave' es el nombre que usa el modelo predictivo en la
+# bitácora (estado_equipos.json) y 'equipo' el texto que se muestra. Las intervenciones de cada uno se
+# obtienen de mantenimiento_fallas (correctivas y preventivas que atendieron esa falla).
 EQUIPOS = [
-    {"clave": "filtro", "equipo": "F-101 filtro de línea", "falla": "Filtro_Obstruido",
-     "preventiva": "limpieza de filtro"},
-    {"clave": "radar", "equipo": "TK-101 radar de nivel", "falla": "Advertencia_Radar_Sucio_Betun",
-     "preventiva": "antena del radar"},
-    {"clave": "caldera", "equipo": "TK-101 caldera / calefactor de betún",
-     "falla": "Sobrecarga_Motor_Por_Asfalto_Frio", "preventiva": "mantención de caldera"},
-    {"clave": "intercambiador", "equipo": "E-301 intercambiador de calor", "falla": "Ensuciamiento_Intercambiador",
-     "preventiva": "intercambiador"},
-    {"clave": "caudalimetro", "equipo": "FT-201 caudalímetro solución",
-     "falla": "Cortocircuito_Transmisor_Caudal_Sol", "preventiva": "transmisor de caudal"},
-    {"clave": "pt100", "equipo": "TT-101 Pt100 betún", "falla": "Falla_Electrica_PT100_Betun",
-     "preventiva": "borneras"},
-    {"clave": "rodamientos", "equipo": "MC-01 rodamientos del molino", "falla": "Desgaste_Rodamientos_Molino",
-     "preventiva": "cambio preventivo de rodamientos"},
+    {"clave": "filtro", "equipo": "F-101 filtro de línea", "falla": "Filtro_Obstruido"},
+    {"clave": "radar", "equipo": "TK-101 radar de nivel", "falla": "Advertencia_Radar_Sucio_Betun"},
+    {"clave": "caldera", "equipo": "TK-101 caldera / calefactor de betún", "falla": "Sobrecarga_Motor_Por_Asfalto_Frio"},
+    {"clave": "intercambiador", "equipo": "E-301 intercambiador de calor", "falla": "Ensuciamiento_Intercambiador"},
+    {"clave": "caudalimetro", "equipo": "FT-201 caudalímetro solución", "falla": "Cortocircuito_Transmisor_Caudal_Sol"},
+    {"clave": "pt100", "equipo": "TT-101 Pt100 betún", "falla": "Falla_Electrica_PT100_Betun"},
+    {"clave": "rodamientos", "equipo": "MC-01 rodamientos del molino", "falla": "Desgaste_Rodamientos_Molino"},
 ]
+SQL_INTERVENCIONES = """
+               FROM mantpred.mantenimientos m
+               JOIN mantpred.mantenimiento_fallas mf ON mf.mantenimiento_id = m.id
+               JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
+               WHERE m.equipo_id = %s AND m.fuente = %s AND m.fecha_inicio <= %s AND tf.codigo = %s"""
 
 # Indicadores del día (mismos supuestos que el dashboard simulado de Franco)
 CAUDAL_20MA = {"betun": 200.0, "solucion": 120.0}     # L/min a 20 mA de cada Coriolis
@@ -94,18 +93,19 @@ def proceso(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado"
 
         # Medidores: último valor de cada sensor con la banda normal del modo actual
         cur.execute(
-            """SELECT s.tag, s.nombre, s.componente, s.variable, s.unidad, s.rango_min, s.rango_max,
+            """SELECT s.tag, s.nombre, c.codigo AS componente, s.variable, s.unidad, s.rango_min, s.rango_max,
                       coalesce(r.normal_min, s.normal_min) AS normal_min,
                       coalesce(r.normal_max, s.normal_max) AS normal_max,
                       l.ts, l.valor
                FROM mantpred.sensores s
+               JOIN mantpred.componentes c ON c.id = s.componente_id
                JOIN LATERAL (SELECT max(ts) AS ts FROM mantpred.lecturas
                              WHERE sensor_id = s.id AND fuente = %s AND ts <= %s) m ON TRUE
                JOIN mantpred.lecturas l ON l.sensor_id = s.id AND l.fuente = %s AND l.ts = m.ts
                LEFT JOIN mantpred.rangos_operacion r
                       ON r.sensor_id = s.id AND r.estado = %s AND r.tipo_asfalto = %s
                WHERE s.equipo_id = %s AND s.activo AND s.origen = 'simulado'
-               ORDER BY s.componente, s.tag""",
+               ORDER BY c.codigo, s.tag""",
             (fuente, ts, fuente, estado, tipo, eq))
         sensores = cur.fetchall()
 
@@ -245,9 +245,10 @@ def _prediccion_actual(cur, eq, fuente, ts) -> list:
     if h is None:
         return []
     cur.execute(
-        """SELECT tf.codigo, tf.titulo, tf.accion, tf.componente, p.horizonte, p.prob_falla, p.umbral, p.alerta,
+        """SELECT tf.codigo, tf.titulo, tf.accion, c.codigo AS componente, p.horizonte, p.prob_falla, p.umbral, p.alerta,
                   p.dias_estimados, p.metodo, p.ts
            FROM mantpred.predicciones p JOIN mantpred.tipos_falla tf ON tf.id = p.tipo_falla_id
+           LEFT JOIN mantpred.componentes c ON c.id = tf.componente_id
            WHERE p.equipo_id = %s AND p.fuente = %s AND p.modelo = 'predictivo' AND p.ts = %s
            ORDER BY tf.id""", (eq, fuente, h))
     por_falla = {}
@@ -264,11 +265,7 @@ def _ultima_intervencion(cur, eq, fuente, ts) -> dict:
     """Fecha de la última intervención (correctiva o preventiva) de cada equipo, según la bitácora."""
     res = {}
     for e in EQUIPOS:
-        cur.execute(
-            """SELECT max(fecha_inicio) AS ultima FROM mantpred.mantenimientos
-               WHERE equipo_id = %s AND fuente = %s AND fecha_inicio <= %s
-                 AND (componente = %s OR (tipo = 'preventivo' AND descripcion ILIKE %s))""",
-            (eq, fuente, ts, e["equipo"], f"%{e['preventiva']}%"))
+        cur.execute("SELECT max(m.fecha_inicio) AS ultima" + SQL_INTERVENCIONES, (eq, fuente, ts, e["falla"]))
         res[e["falla"]] = cur.fetchone()["ultima"]
     return res
 
@@ -328,11 +325,14 @@ def prediccion_evolucion(horizonte: Literal["24h", "5d", "15d"] = "5d", dias: in
 def _alarmas(cur, eq, fuente, activas: bool, limite: int, ts) -> list:
     cur.execute(
         f"""SELECT a.id, a.inicio, a.fin, a.mensaje, a.severidad, a.origen, a.valor, a.detalle,
-                   tf.codigo AS falla, tf.componente AS componente_falla,
-                   coalesce(tf.accion, r.accion) AS accion, r.codigo AS regla, r.componente AS componente_regla
+                   tf.codigo AS falla, cf.codigo AS componente_falla,
+                   coalesce(tf.accion, r.accion) AS accion, r.codigo AS regla, cr.codigo AS componente_regla
             FROM mantpred.alarmas a
             LEFT JOIN mantpred.tipos_falla tf ON tf.id = a.tipo_falla_id
+            LEFT JOIN mantpred.componentes cf ON cf.id = tf.componente_id
             LEFT JOIN mantpred.reglas_alarma r ON r.id = a.regla_id
+            LEFT JOIN mantpred.sensores sr ON sr.id = r.sensor_id
+            LEFT JOIN mantpred.componentes cr ON cr.id = sr.componente_id
             WHERE a.equipo_id = %s AND a.fuente = %s AND a.inicio <= %s {"AND a.fin IS NULL" if activas else ""}
             ORDER BY a.inicio DESC LIMIT %s""", (eq, fuente, ts, limite))
     res = []
@@ -417,12 +417,8 @@ def mantenimiento_pantalla(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuen
         riesgo15 = {f["falla"]: f["horizontes"].get("15d", {}) for f in _prediccion_actual(cur, eq, fuente, ts)}
         filas = []
         for e in EQUIPOS:
-            cur.execute(
-                """SELECT fecha_inicio, tipo FROM mantpred.mantenimientos
-                   WHERE equipo_id = %s AND fuente = %s AND fecha_inicio <= %s
-                     AND (componente = %s OR (tipo = 'preventivo' AND descripcion ILIKE %s))
-                   ORDER BY fecha_inicio""",
-                (eq, fuente, ts, e["equipo"], f"%{e['preventiva']}%"))
+            cur.execute("SELECT m.fecha_inicio, m.tipo" + SQL_INTERVENCIONES + " ORDER BY m.fecha_inicio",
+                        (eq, fuente, ts, e["falla"]))
             regs = cur.fetchall()
             corr = [r["fecha_inicio"] for r in regs if r["tipo"] == "correctivo"]
             difs = [(b - a).total_seconds() / 86400 for a, b in zip(corr, corr[1:])]
@@ -440,9 +436,14 @@ def mantenimiento_pantalla(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuen
             (eq, fuente, ts))
         tot = cur.fetchone()
         cur.execute(
-            """SELECT fecha_inicio, componente, tipo, descripcion FROM mantpred.mantenimientos
-               WHERE equipo_id = %s AND fuente = %s AND fecha_inicio <= %s
-               ORDER BY fecha_inicio DESC LIMIT 60""", (eq, fuente, ts))
+            """SELECT m.fecha_inicio, coalesce(c.codigo || ' ' || lower(c.nombre), 'Planta completa') AS componente,
+                      m.tipo, m.descripcion,
+                      (SELECT array_agg(tf.titulo ORDER BY tf.id) FROM mantpred.mantenimiento_fallas mf
+                       JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
+                       WHERE mf.mantenimiento_id = m.id) AS fallas_atendidas
+               FROM mantpred.mantenimientos m LEFT JOIN mantpred.componentes c ON c.id = m.componente_id
+               WHERE m.equipo_id = %s AND m.fuente = %s AND m.fecha_inicio <= %s
+               ORDER BY m.fecha_inicio DESC LIMIT 60""", (eq, fuente, ts))
         bitacora = cur.fetchall()
     return {"ts": ts, "equipos": filas,
             "pct_planificado": round(100 * tot["preventivas"] / tot["total"], 1) if tot["total"] else None,
