@@ -4,7 +4,7 @@ Esquema PostgreSQL del sistema de mantenimiento predictivo del molino coloidal M
 (Química Latinoamericana S.A.). Alojado en **Amazon RDS** (`qla-mantpred`, us-east-1), esquema `mantpred`.
 
 Responsable: Nicolás (Ingeniería de datos y backend)
-Versión: 4 — basada en el esquema original de Franco Carvajal (v1/v2 en Supabase, migrado a RDS en v3)
+Versión: 4.1 — basada en el esquema original de Franco Carvajal (v1/v2 en Supabase, migrado a RDS en v3)
 
 ![Diagrama entidad-relación v4](diagrama/bd_mantpred_v4.png)
 
@@ -18,12 +18,13 @@ Versión: 4 — basada en el esquema original de Franco Carvajal (v1/v2 en Supab
 | `bd_mantenimiento_predictivo_v2.sql` | Esquema base (v2): tablas, seguridad (RLS) y datos iniciales |
 | `migracion_v3.sql` | v3: reglas de alarma, condiciones por minuto, columnas de origen/fuente, 2 roles |
 | `migracion_v4.sql` | v4: normalización final (ver abajo). Una sola transacción |
+| `migracion_v4_1.sql` | v4.1: FK compuestas que aseguran que el equipo de un sensor o de una mantención coincida con el de su componente |
 | `ejecutar_sql.py` | Ejecuta un archivo .sql contra RDS usando el archivo de conexión local |
 | `crear_admin.py` | Crea el primer usuario administrador |
 | `cargar_datos.py` | Carga una ventana del dataset simulado MC-01 en `lecturas` y `estados_equipo` |
 | `requirements.txt` | Dependencias de los scripts |
 
-Para crear la base desde cero: `v2` → `migracion_v3.sql` → `migracion_v4.sql`.
+Para crear la base desde cero: `v2` → `migracion_v3.sql` → `migracion_v4.sql` → `migracion_v4_1.sql`.
 
 ## Las 16 tablas, por área
 
@@ -46,6 +47,7 @@ Para crear la base desde cero: `v2` → `migracion_v3.sql` → `migracion_v4.sql
 | CHECK por modelo en `predicciones` | El predictivo exige falla; el autoencoder no tiene falla ni probabilidad; el diagnóstico no tiene error de reconstrucción |
 | CHECK en `alarmas` (`origen` regla/modelo, coherencia regla ↔ origen) | Impide filas inconsistentes |
 | `COMMENT` en todas las tablas y columnas clave | Documentación dentro de la propia base |
+| (v4.1) FK compuesta `(componente_id, equipo_id)` en `sensores` y `mantenimientos` | `equipo_id` también se deduce del componente; la base garantiza que ambos coincidan (redundancia controlada, sin riesgo de contradicción) |
 
 ## Aplicar una migración en RDS
 

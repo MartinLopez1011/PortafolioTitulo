@@ -1,6 +1,6 @@
-# Diccionario de datos — esquema `mantpred` (v4)
+# Diccionario de datos — esquema `mantpred` (v4.1)
 
-Base PostgreSQL en Amazon RDS (`qla-mantpred`). 16 tablas en 5 áreas. Se construye con `bd_mantenimiento_predictivo_v2.sql`, `migracion_v3.sql` y `migracion_v4.sql`.
+Base PostgreSQL en Amazon RDS (`qla-mantpred`). 16 tablas en 5 áreas. Se construye con `bd_mantenimiento_predictivo_v2.sql`, `migracion_v3.sql`, `migracion_v4.sql` y `migracion_v4_1.sql`.
 
 Claves: **PK** primaria · **FK** foránea · **UQ** única. *Nulo*: sí = admite valores vacíos.
 
@@ -37,6 +37,10 @@ Reglas de integridad (CHECK):
 
 - `(tipo IN ('estanque', 'instrumento', 'filtro', 'bomba', 'valvula', 'molino', 'intercambiador'))`
 
+Restricciones de unicidad:
+
+- `(id, equipo_id)`: clave candidata que usan las FK compuestas de `sensores` y `mantenimientos`
+
 ### `sensores`
 
 Catálogo de señales medidas: 41 del dataset simulado y 6 tags reales del PLC. normal_min/normal_max = banda general cuando no hay banda por modo en rangos_operacion
@@ -59,6 +63,8 @@ Catálogo de señales medidas: 41 del dataset simulado y 6 tags reales del PLC. 
 | `activo` | boolean |  | no | Si se usa actualmente |
 | `descripcion` | varchar(250) |  | sí | Descripción |
 | `componente_id` | smallint | FK → componentes | no | Componente donde está montado |
+
+Coherencia: FK compuesta `(componente_id, equipo_id)` → `componentes (id, equipo_id)`. El componente del sensor debe pertenecer al mismo equipo que el sensor.
 
 Reglas de integridad (CHECK):
 
@@ -294,6 +300,8 @@ Bitácora de intervenciones de la planta. componente_id NULL = intervención de 
 | `fuente` | varchar(10) |  | no | simulado o real |
 | `origen_registro` | varchar(10) |  | no | bitacora o dashboard |
 | `componente_id` | smallint | FK → componentes | sí | Componente intervenido (vacío = toda la línea) |
+
+Coherencia: FK compuesta `(componente_id, equipo_id)` → `componentes (id, equipo_id)`. Si hay componente, debe pertenecer al equipo de la mantención; sin componente no se verifica.
 
 Reglas de integridad (CHECK):
 
