@@ -2,16 +2,16 @@
 import datetime as dt
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from .. import config
 from ..db import cursor
 from ..iot_ws import AWS_REGION, IOT_ENDPOINT, generar_iot_websocket_url
-from ..seguridad import OPERADOR, SUPERVISOR, VISUALIZADOR, auditar, ip_cliente, requiere_nivel
+from ..seguridad import ADMINISTRADOR, OPERADOR, auditar, ip_cliente, requiere_nivel
 
 router = APIRouter(tags=["Planta y dashboard"])
-lector = requiere_nivel(VISUALIZADOR)
+lector = requiere_nivel(OPERADOR)          # operador y administrador ven todo el sistema
 
 Fuente = Literal["simulado", "real"]
 PASOS = {"1min": "1 minute", "5min": "5 minutes", "15min": "15 minutes", "1h": "1 hour", "1d": "1 day"}
@@ -57,10 +57,10 @@ def sensores(equipo: str = config.EQUIPO_POR_DEFECTO, origen: Fuente | None = No
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         cur.execute(
-            """SELECT id, tag, nombre, componente, variable, tipo_sensor, unidad, rango_min, rango_max,
-                      normal_min, normal_max, senal, origen, activo
-               FROM mantpred.sensores
-               WHERE equipo_id = %s AND (%s::text IS NULL OR origen = %s) ORDER BY componente, tag""",
+            """SELECT s.id, s.tag, s.nombre, c.codigo AS componente, s.variable, s.tipo_sensor, s.unidad,
+                      s.rango_min, s.rango_max, s.normal_min, s.normal_max, s.senal, s.origen, s.activo
+               FROM mantpred.sensores s JOIN mantpred.componentes c ON c.id = s.componente_id
+               WHERE s.equipo_id = %s AND (%s::text IS NULL OR s.origen = %s) ORDER BY c.codigo, s.tag""",
             (eq, origen, origen))
         return cur.fetchall()
 
@@ -72,7 +72,9 @@ def tipos_falla(u: dict = Depends(lector)):
         from .. import demo_store
         return demo_store.TIPOS_FALLA
     with cursor() as cur:
-        cur.execute("SELECT id, codigo, titulo, componente, prioridad, accion FROM mantpred.tipos_falla ORDER BY id")
+        cur.execute("""SELECT tf.id, tf.codigo, tf.titulo, c.codigo AS componente, tf.prioridad, tf.accion
+                       FROM mantpred.tipos_falla tf LEFT JOIN mantpred.componentes c ON c.id = tf.componente_id
+                       ORDER BY tf.id""")
         return cur.fetchall()
 
 
@@ -87,12 +89,12 @@ def lecturas_ultimas(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         cur.execute(
-            f"""SELECT s.id AS sensor_id, s.tag, s.nombre, s.componente, s.variable, s.unidad,
+            f"""SELECT s.id AS sensor_id, s.tag, s.nombre, c.codigo AS componente, s.variable, s.unidad,
                        s.normal_min, s.normal_max, l.ts, l.valor, l.calidad,
                        (l.valor < s.normal_min OR l.valor > s.normal_max) AS fuera_de_rango
-                FROM mantpred.sensores s {_ULTIMA_LECTURA}
+                FROM mantpred.sensores s JOIN mantpred.componentes c ON c.id = s.componente_id {_ULTIMA_LECTURA}
                 WHERE s.equipo_id = %s AND s.activo
-                ORDER BY s.componente, s.tag""", (fuente, fuente, eq))
+                ORDER BY c.codigo, s.tag""", (fuente, fuente, eq))
         return cur.fetchall()
 
 
@@ -256,7 +258,8 @@ def alarmas(activas: bool = True, limite: int = Query(100, ge=1, le=500), fuente
                FROM mantpred.alarmas a
                JOIN mantpred.equipos e ON e.id = a.equipo_id
                LEFT JOIN mantpred.tipos_falla tf ON tf.id = a.tipo_falla_id
-               LEFT JOIN mantpred.sensores s ON s.id = a.sensor_id
+               LEFT JOIN mantpred.reglas_alarma r ON r.id = a.regla_id
+               LEFT JOIN mantpred.sensores s ON s.id = r.sensor_id
                LEFT JOIN mantpred.usuarios ur ON ur.id = a.reconocida_por
                WHERE a.fuente = %s AND (NOT %s OR a.fin IS NULL)
                ORDER BY a.inicio DESC LIMIT %s""", (fuente, activas, limite))
@@ -296,7 +299,7 @@ def predicciones_ultimas(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente
         cur.execute(
             """SELECT DISTINCT ON (p.modelo, p.horizonte, p.tipo_falla_id)
                       p.ts, p.modelo, p.modelo_version, p.horizonte, tf.codigo AS falla, tf.titulo,
-                      p.prob_falla, p.indice_salud, p.vida_util_horas
+                      p.prob_falla, p.indice_salud, p.alerta, p.umbral
                FROM mantpred.predicciones p LEFT JOIN mantpred.tipos_falla tf ON tf.id = p.tipo_falla_id
                WHERE p.equipo_id = %s AND p.fuente = %s
                ORDER BY p.modelo, p.horizonte, p.tipo_falla_id, p.ts DESC""", (eq, fuente))
@@ -305,11 +308,13 @@ def predicciones_ultimas(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente
 
 # ---------------------------------------------------------------- mantenimientos
 class MantenimientoNuevo(BaseModel):
-    componente: str = Field(min_length=2, max_length=60)
+    componente: str | None = Field(default=None, max_length=20,
+                                   description="Código del componente (F-101, TK-101...). Vacío = toda la línea")
     tipo: Literal["preventivo", "correctivo", "predictivo"]
     fecha_inicio: dt.datetime
     fecha_fin: dt.datetime | None = None
-    tipo_falla: str | None = Field(default=None, description="Código de tipos_falla, si corresponde")
+    fallas: list[str] = Field(default_factory=list, max_length=8,
+                              description="Códigos de tipos_falla que atiende la intervención")
     alarma_id: int | None = None
     descripcion: str | None = Field(default=None, max_length=2000)
 
@@ -323,18 +328,21 @@ def mantenimientos(equipo: str = config.EQUIPO_POR_DEFECTO, limite: int = Query(
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         cur.execute(
-            """SELECT m.id, m.componente, m.tipo, tf.codigo AS falla, m.alarma_id, m.fecha_inicio, m.fecha_fin,
-                      m.descripcion, us.nombre AS registrado_por
+            """SELECT m.id, c.codigo AS componente, m.tipo, m.alarma_id, m.fecha_inicio, m.fecha_fin,
+                      m.descripcion, m.fuente, m.origen_registro, us.nombre AS registrado_por,
+                      (SELECT array_agg(tf.codigo ORDER BY tf.id) FROM mantpred.mantenimiento_fallas mf
+                       JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
+                       WHERE mf.mantenimiento_id = m.id) AS fallas
                FROM mantpred.mantenimientos m
-               JOIN mantpred.usuarios us ON us.id = m.registrado_por
-               LEFT JOIN mantpred.tipos_falla tf ON tf.id = m.tipo_falla_id
+               LEFT JOIN mantpred.componentes c ON c.id = m.componente_id
+               LEFT JOIN mantpred.usuarios us ON us.id = m.registrado_por
                WHERE m.equipo_id = %s ORDER BY m.fecha_inicio DESC LIMIT %s""", (eq, limite))
         return cur.fetchall()
 
 
-@router.post("/mantenimientos", status_code=201, summary="Registrar un mantenimiento (supervisor o superior)")
+@router.post("/mantenimientos", status_code=201, summary="Registrar un mantenimiento (administrador)")
 def crear_mantenimiento(datos: MantenimientoNuevo, request: Request, equipo: str = config.EQUIPO_POR_DEFECTO,
-                        u: dict = Depends(requiere_nivel(SUPERVISOR))):
+                        u: dict = Depends(requiere_nivel(ADMINISTRADOR))):
     from .. import db
     if db.MODO_DEMO:
         return {"id": 1, "mensaje": "Mantenimiento registrado (modo demostración)"}
@@ -342,20 +350,30 @@ def crear_mantenimiento(datos: MantenimientoNuevo, request: Request, equipo: str
         raise HTTPException(422, "fecha_fin no puede ser anterior a fecha_inicio")
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
-        falla_id = None
-        if datos.tipo_falla:
-            cur.execute("SELECT id FROM mantpred.tipos_falla WHERE codigo = %s", (datos.tipo_falla,))
+        componente_id = None
+        if datos.componente:
+            cur.execute("SELECT id FROM mantpred.componentes WHERE codigo = %s AND equipo_id = %s",
+                        (datos.componente, eq))
             fila = cur.fetchone()
             if fila is None:
-                raise HTTPException(422, f"Tipo de falla desconocido: {datos.tipo_falla}")
-            falla_id = fila["id"]
+                raise HTTPException(422, f"Componente desconocido: {datos.componente}")
+            componente_id = fila["id"]
+        fallas = sorted(set(datos.fallas))
+        cur.execute("SELECT id, codigo FROM mantpred.tipos_falla WHERE codigo = ANY(%s)", (fallas,))
+        ids_falla = {f["codigo"]: f["id"] for f in cur.fetchall()}
+        faltan = set(fallas) - set(ids_falla)
+        if faltan:
+            raise HTTPException(422, f"Tipos de falla desconocidos: {', '.join(sorted(faltan))}")
         cur.execute(
-            """INSERT INTO mantpred.mantenimientos (equipo_id, registrado_por, componente, tipo, tipo_falla_id,
+            """INSERT INTO mantpred.mantenimientos (equipo_id, registrado_por, componente_id, tipo,
                                                     alarma_id, fecha_inicio, fecha_fin, descripcion)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
-            (eq, u["id"], datos.componente, datos.tipo, falla_id, datos.alarma_id,
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (eq, u["id"], componente_id, datos.tipo, datos.alarma_id,
              datos.fecha_inicio, datos.fecha_fin, datos.descripcion))
         nuevo = cur.fetchone()["id"]
+        if ids_falla:
+            cur.execute("""INSERT INTO mantpred.mantenimiento_fallas (mantenimiento_id, tipo_falla_id)
+                           SELECT %s, unnest(%s::smallint[])""", (nuevo, list(ids_falla.values())))
         auditar(cur, u["id"], u["email"], ip_cliente(request), "mantenimiento_registrado", f"id {nuevo}")
     return {"id": nuevo, "mensaje": "Mantenimiento registrado"}
 
@@ -374,104 +392,3 @@ def iot_ws_url(u: dict = Depends(lector)):
             "predicciones": "planta/asfalto/molino/predicciones",
         },
     }
-
-
-_clientes_ws: set[WebSocket] = set()
-
-
-async def emitir_telemetria_en_vivo(payload: dict):
-    """Transmite telemetría en tiempo real a todos los navegadores conectados."""
-    muertos = []
-    for ws in list(_clientes_ws):
-        try:
-            await ws.send_json(payload)
-        except Exception:
-            muertos.append(ws)
-    for ws in muertos:
-        _clientes_ws.discard(ws)
-
-
-@router.websocket("/ws/telemetria")
-async def ws_telemetria(websocket: WebSocket):
-    await websocket.accept()
-    _clientes_ws.add(websocket)
-    try:
-        from .. import demo_store
-        await websocket.send_json({
-            "topic": "planta/asfalto/molino/telemetria",
-            "tipo": "bienvenida",
-            "timestamp": int(dt.datetime.now(dt.timezone.utc).timestamp()),
-            "lectura_actual": demo_store.VALORES_INICIALES
-        })
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    finally:
-        _clientes_ws.discard(websocket)
-
-
-class Lectura31Molino(BaseModel):
-    """Esquema validado de las 31 variables de entrada comunes a los Modelos 1, 2 y 3."""
-    ESTADO_operacion: str = "Produccion"
-    TIPO_asfalto: str = "Convencional"
-    TEM_son_betum_in: float = 134.7
-    RES_son_betum_in: float = 151.86
-    VOLT_son_betum_in: float = 23.76
-    AMP_son_betum_in: float = 12.62
-    AMP_cau_betum_in: float = 12.3
-    FRE_cau_betum_in: float = 249.5
-    AMP_eco_betum_dep: float = 52.33
-    EST_niv_betum_dep: float = 0.0
-    TEM_son_solucion_in: float = 36.4
-    RES_son_solucion_in: float = 114.01
-    AMP_son_solucion_in: float = 9.82
-    AMP_cau_solucion_in: float = 13.31
-    FRE_cau_solucion_in: float = 400.0
-    AMP_eco_solucion_dep: float = 70.0
-    TEM_son_emulsion_out: float = 72.5
-    RES_son_emulsion_out: float = 127.91
-    AMP_cau_emulsion_out: float = 14.44
-    FRE_cau_emulsion_out: float = 322.7
-    AMP_eco_emulsion_dep: float = 60.0
-    RPM_motor_molino: float = 2898.0
-    FRE_vfd_motor_molino: float = 50.0
-    AMP_vfd_motor_molino: float = 105.7
-    TOR_vfd_motor_molino: float = 71.7
-    VIB_vel_motor_molino: float = 2.47
-    AMP_vib_motor_molino: float = 5.58
-    CAU_bomba_lpm: float = 180.6
-    PRE_dif_filtro_bar: float = 0.42
-    TEM_emulsion_molino_out: float = 73.5
-    PRE_intercambiador_bar: float = 0.0
-    es_plastomerico: int | None = None
-    en_limpieza: int | None = None
-
-
-@router.post("/telemetria", summary="Ingesta de telemetría en vivo (31 variables de entrada)")
-async def ingesta_telemetria(datos: dict):
-    """Recibe telemetría desde el simulador de planta o Edge Gateway, arregla las 31 variables y las distribuye en vivo."""
-    from .. import demo_store
-    lectura_raw = datos.get("lectura_actual") or datos
-    lectura_validada = Lectura31Molino(**(lectura_raw if isinstance(lectura_raw, dict) else {}))
-    lectura = lectura_validada.model_dump()
-    if lectura["es_plastomerico"] is None:
-        lectura["es_plastomerico"] = int(lectura["TIPO_asfalto"].lower().startswith("plasto"))
-    if lectura["en_limpieza"] is None:
-        lectura["en_limpieza"] = int(lectura["ESTADO_operacion"].lower() == "limpieza")
-
-    for k, v in lectura.items():
-        if k in demo_store.VALORES_INICIALES:
-            try:
-                demo_store.VALORES_INICIALES[k] = float(v) if k not in ("es_plastomerico", "en_limpieza") else int(v)
-            except (ValueError, TypeError):
-                pass
-    
-    # Broadcast a navegadores conectados
-    await emitir_telemetria_en_vivo({
-        "topic": "planta/asfalto/molino/telemetria",
-        "timestamp": datos.get("timestamp", int(dt.datetime.now(dt.timezone.utc).timestamp())),
-        "equipo_id": datos.get("equipo_id", "MOLINO_QLA_01"),
-        "lectura_actual": lectura
-    })
-    return {"status": "ok", "variables_31": len(demo_store.FEATURES_31_MODELOS), "clientes_activos": len(_clientes_ws)}

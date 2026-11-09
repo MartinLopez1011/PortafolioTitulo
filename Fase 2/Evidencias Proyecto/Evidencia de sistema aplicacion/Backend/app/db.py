@@ -1,6 +1,12 @@
-"""Conexión a PostgreSQL (Supabase) con un pool de conexiones y fallback automático a modo demostración."""
-from contextlib import contextmanager
+"""Conexión a PostgreSQL (Supabase) con un pool de conexiones.
+
+El modo demostración (datos de ejemplo en memoria) se activa solo con MODO_DEMO=1 en el .env.
+Si la base no responde, la API contesta 503 y se recupera sola cuando la base vuelve:
+nunca cambia por su cuenta a datos de ejemplo.
+"""
 import logging
+from contextlib import contextmanager
+
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -9,44 +15,32 @@ from . import config
 logger = logging.getLogger(__name__)
 
 _pool: ConnectionPool | None = None
-MODO_DEMO: bool = False
+MODO_DEMO: bool = config.MODO_DEMO
 
 
 def abrir() -> None:
-    global _pool, MODO_DEMO
-    # Si la URL es la de ejemplo o localhost por defecto, activar modo demostración sin esperar timeout
-    if not config.DATABASE_URL or "TU_PROJECT_REF" in config.DATABASE_URL or "localhost" in config.DATABASE_URL:
-        logger.info("DATABASE_URL no configurada para Supabase remoto. Activando modo demostración local.")
-        MODO_DEMO = True
-        _pool = None
+    global _pool
+    if MODO_DEMO:
+        logger.warning("MODO_DEMO=1: la API usa datos de ejemplo en memoria, sin base de datos.")
         return
-
-    try:
-        _pool = ConnectionPool(
-            config.DATABASE_URL,
-            min_size=1,
-            max_size=5,
-            timeout=3,
-            open=True,
-            kwargs={"row_factory": dict_row,
-                    "prepare_threshold": None,
-                    "connect_timeout": 3},
-        )
-        MODO_DEMO = False
-        logger.info("Conexión exitosa al pool de base de datos PostgreSQL/Supabase.")
-    except Exception as e:
-        logger.warning(f"No se pudo conectar a PostgreSQL/Supabase ({e}). Activando modo demostración local.")
-        MODO_DEMO = True
-        _pool = None
+    _pool = ConnectionPool(
+        config.DATABASE_URL,
+        min_size=1,
+        max_size=5,                      # el plan gratis de Supabase limita las conexiones
+        timeout=15,
+        open=False,
+        kwargs={"row_factory": dict_row,
+                "prepare_threshold": None,   # necesario con el pooler de Supabase
+                "connect_timeout": 15},
+    )
+    # open(wait=False): la API arranca aunque la base esté pausada; las consultas
+    # responden 503 hasta que la base vuelva.
+    _pool.open(wait=False)
 
 
 def cerrar() -> None:
-    global _pool
     if _pool is not None:
-        try:
-            _pool.close()
-        except Exception:
-            pass
+        _pool.close()
 
 
 @contextmanager
@@ -54,7 +48,7 @@ def cursor():
     """Entrega un cursor dentro de una transacción.
     Si el bloque termina bien se hace COMMIT; si lanza una excepción, ROLLBACK."""
     if _pool is None:
-        raise RuntimeError("El pool de conexiones no está abierto (modo demostración activo)")
+        raise RuntimeError("El pool de conexiones no está abierto")
     with _pool.connection() as conn:
         with conn.cursor() as cur:
             yield cur
