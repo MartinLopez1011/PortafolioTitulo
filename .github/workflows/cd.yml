@@ -1,0 +1,186 @@
+name: CD (Despliegue Manual a AWS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      componente:
+        description: "Componente a desplegar en AWS"
+        type: choice
+        options: [todo, backend, lambda]
+        default: todo
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # OIDC hacia AWS
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  APP_DIR: "Fase 2/Evidencias Proyecto/Evidencia de sistema aplicacion"
+  ECR_BACKEND: qla-backend
+  ECR_LAMBDA: qla-inferencia
+  LAMBDA_FUNCTION: qla-inferencia
+  EC2_TAG: qla-servidor
+  API_NAME: qla-dashboard
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  deploy-backend:
+    name: Backend + Dashboard -> EC2
+    if: inputs.componente != 'lambda'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Credenciales AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Asegurar repositorio ECR
+        run: |
+          aws ecr describe-repositories --repository-names "$ECR_BACKEND" >/dev/null 2>&1 || \
+            aws ecr create-repository --repository-name "$ECR_BACKEND" --image-scanning-configuration scanOnPush=true
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.APP_DIR }}/Backend
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_BACKEND }}:${{ env.IMAGE_TAG }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_BACKEND }}:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Asegurar EC2 encendida y desplegar vía SSM
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          IID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=$EC2_TAG" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+            --query "Reservations[0].Instances[0].InstanceId" --output text)
+          if [ -z "$IID" ] || [ "$IID" = "None" ]; then
+            echo "::error::No existe instancia EC2 con tag Name=$EC2_TAG"; exit 1
+          fi
+          STATE=$(aws ec2 describe-instances --instance-ids "$IID" --query "Reservations[0].Instances[0].State.Name" --output text)
+          echo "Instancia: $IID (estado actual: $STATE)"
+          if [ "$STATE" = "stopped" ]; then
+            echo "Encendiendo instancia $IID..."
+            aws ec2 start-instances --instance-ids "$IID" >/dev/null
+            aws ec2 wait instance-running --instance-ids "$IID"
+            sleep 25
+          elif [ "$STATE" != "running" ]; then
+            aws ec2 wait instance-running --instance-ids "$IID"
+            sleep 15
+          fi
+          # IMDSv2 con hop-limit 2: el contenedor (red bridge) puede usar el rol de la instancia (boto3)
+          aws ec2 modify-instance-metadata-options --instance-id "$IID" \
+            --http-tokens required --http-put-response-hop-limit 2 --http-endpoint enabled >/dev/null
+          SCRIPT=$(base64 -w0 "$APP_DIR/infraestructura_aws/cicd/deploy_backend_ec2.sh")
+          PARAMS=$(jq -nc --arg s "$SCRIPT" --arg img "$REGISTRY/$ECR_BACKEND:$IMAGE_TAG" --arg reg "$REGISTRY" --arg region "$AWS_REGION" \
+            '{commands: ["echo \($s) | base64 -d > /tmp/qla_deploy.sh", "bash /tmp/qla_deploy.sh \($img) \($reg) \($region)"]}')
+          CMD_ID=$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \
+            --comment "deploy ${IMAGE_TAG:0:7}" --timeout-seconds 600 \
+            --parameters "$PARAMS" --query "Command.CommandId" --output text)
+          echo "SSM command: $CMD_ID"
+          aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$IID" || true
+          OUT=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID")
+          echo "$OUT" | jq -r '.StandardOutputContent'
+          echo "$OUT" | jq -r '.StandardErrorContent' >&2
+          STATUS=$(echo "$OUT" | jq -r '.Status')
+          [ "$STATUS" = "Success" ] || { echo "::error::Despliegue en EC2 terminó con estado $STATUS"; exit 1; }
+
+      - name: Smoke test público (API Gateway) y mostrar URL
+        run: |
+          API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)
+          if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
+            echo "::warning::API Gateway $API_NAME no encontrada; se omite smoke test público"; exit 0
+          fi
+          URL="https://$API_ID.execute-api.$AWS_REGION.amazonaws.com"
+          for _ in $(seq 1 20); do
+            if curl -fsS "$URL/api/salud"; then
+              echo
+              echo "### URL del Dashboard y API: $URL" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 6
+          done
+          echo "::error::$URL/api/salud no respondió"; exit 1
+
+  deploy-lambda:
+    name: Lambda inferencia
+    if: inputs.componente != 'backend'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Credenciales AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Asegurar repositorio ECR
+        run: |
+          aws ecr describe-repositories --repository-names "$ECR_LAMBDA" >/dev/null 2>&1 || \
+            aws ecr create-repository --repository-name "$ECR_LAMBDA" --image-scanning-configuration scanOnPush=true
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & push (formato Docker v2 compatible con Lambda)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.APP_DIR }}/lambda_inferencia
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          outputs: type=registry,oci-mediatypes=false
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_LAMBDA }}:${{ env.IMAGE_TAG }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_LAMBDA }}:latest
+          cache-from: type=gha,scope=lambda
+          cache-to: type=gha,mode=max,scope=lambda
+
+      - name: Actualizar función Lambda
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          PREV=$(aws lambda get-function --function-name "$LAMBDA_FUNCTION" --query "Code.ImageUri" --output text)
+          echo "PREV_IMAGE=$PREV" >> "$GITHUB_ENV"
+          aws lambda update-function-code --function-name "$LAMBDA_FUNCTION" \
+            --image-uri "$REGISTRY/$ECR_LAMBDA:$IMAGE_TAG" --query "LastUpdateStatus" --output text
+          aws lambda wait function-updated-v2 --function-name "$LAMBDA_FUNCTION"
+
+      - name: Invocación de prueba (rollback si falla)
+        run: |
+          set -uo pipefail
+          aws lambda invoke --function-name "$LAMBDA_FUNCTION" --cli-binary-format raw-in-base64-out \
+            --payload "file://$APP_DIR/lambda_inferencia/app/test_payload_flat.json" /tmp/out.json > /tmp/meta.json
+          cat /tmp/meta.json; head -c 1500 /tmp/out.json; echo
+          if jq -e '.FunctionError' /tmp/meta.json >/dev/null || ! jq -e '.statusCode == 200' /tmp/out.json >/dev/null; then
+            echo "::error::La nueva versión falló; restaurando $PREV_IMAGE"
+            aws lambda update-function-code --function-name "$LAMBDA_FUNCTION" --image-uri "$PREV_IMAGE" >/dev/null
+            aws lambda wait function-updated-v2 --function-name "$LAMBDA_FUNCTION"
+            exit 1
+          fi
+          echo "### Lambda $LAMBDA_FUNCTION -> ${IMAGE_TAG:0:7}" >> "$GITHUB_STEP_SUMMARY"
