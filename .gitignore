@@ -1,6 +1,10 @@
 #Markdown IA
 .antigravity
 .AGENTS.md
+AGENTS.md
+agents.md
+**/AGENTS.md
+**/agents.md
 
 # Certificados y llaves privadas de AWS IoT Core
 **/certs/*.pem
