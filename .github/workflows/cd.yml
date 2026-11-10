@@ -14,15 +14,15 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  id-token: write   # OIDC hacia AWS
+  id-token: write
   contents: read
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
   APP_DIR: "Fase 2/Evidencias Proyecto/Evidencia de sistema aplicacion"
   ECR_BACKEND: qla-backend
-  ECR_LAMBDA: qla-inferencia
-  LAMBDA_FUNCTION: qla-inferencia
+  ECR_LAMBDA: qla-molino-inferencia
+  LAMBDA_FUNCTION: qla-molino-inferencia
   EC2_TAG: qla-servidor
   API_NAME: qla-dashboard
   IMAGE_TAG: ${{ github.sha }}
@@ -75,29 +75,14 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
-      - name: Asegurar EC2 encendida y desplegar vía SSM
+      - name: Aprovisionar/Encender EC2 + API Gateway y desplegar vía SSM
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
+          DATABASE_URL_ENV: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
-          IID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=$EC2_TAG" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
-            --query "Reservations[0].Instances[0].InstanceId" --output text)
-          if [ -z "$IID" ] || [ "$IID" = "None" ]; then
-            echo "::error::No existe instancia EC2 con tag Name=$EC2_TAG"; exit 1
-          fi
-          STATE=$(aws ec2 describe-instances --instance-ids "$IID" --query "Reservations[0].Instances[0].State.Name" --output text)
-          echo "Instancia: $IID (estado actual: $STATE)"
-          if [ "$STATE" = "stopped" ]; then
-            echo "Encendiendo instancia $IID..."
-            aws ec2 start-instances --instance-ids "$IID" >/dev/null
-            aws ec2 wait instance-running --instance-ids "$IID"
-            sleep 25
-          elif [ "$STATE" != "running" ]; then
-            aws ec2 wait instance-running --instance-ids "$IID"
-            sleep 15
-          fi
-          # IMDSv2 con hop-limit 2: el contenedor (red bridge) puede usar el rol de la instancia (boto3)
+          IID=$(bash "$APP_DIR/infraestructura_aws/cicd/ensure_ec2_and_apigw.sh")
+          echo "Instancia lista: $IID"
           aws ec2 modify-instance-metadata-options --instance-id "$IID" \
             --http-tokens required --http-put-response-hop-limit 2 --http-endpoint enabled >/dev/null
           SCRIPT=$(base64 -w0 "$APP_DIR/infraestructura_aws/cicd/deploy_backend_ec2.sh")
@@ -117,14 +102,15 @@ jobs:
       - name: Smoke test público (API Gateway) y mostrar URL
         run: |
           API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)
-          if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
-            echo "::warning::API Gateway $API_NAME no encontrada; se omite smoke test público"; exit 0
-          fi
           URL="https://$API_ID.execute-api.$AWS_REGION.amazonaws.com"
           for _ in $(seq 1 20); do
             if curl -fsS "$URL/api/salud"; then
               echo
-              echo "### URL del Dashboard y API: $URL" >> "$GITHUB_STEP_SUMMARY"
+              {
+                echo "### Dashboard y API desplegados en AWS ($AWS_REGION)"
+                echo "- **URL Pública HTTPS:** $URL"
+                echo "- **Login Modo Demo:** \`admin@demo.qla.cl\` / \`ClaveDemo2026\`"
+              } >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             sleep 6

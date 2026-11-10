@@ -21,6 +21,7 @@ env:
   EC2_TAG: qla-servidor
   RDS_ID: qla-mantpred
   API_NAME: qla-dashboard
+  LAMBDA_FUNCTION: qla-molino-inferencia
 
 jobs:
   control:
@@ -49,12 +50,25 @@ jobs:
           IID=$(aws ec2 describe-instances \
             --filters "Name=tag:Name,Values=$EC2_TAG" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
             --query "Reservations[0].Instances[0].InstanceId" --output text)
-          if [ -z "$IID" ] || [ "$IID" = "None" ]; then
-            echo "::error::No se encontró instancia EC2 con tag Name=$EC2_TAG"; exit 1
-          fi
-
           RDS_STATUS=$(aws rds describe-db-instances --db-instance-identifier "$RDS_ID" \
             --query "DBInstances[0].DBInstanceStatus" --output text 2>/dev/null || echo "no-existe")
+          LAMBDA_STATE=$(aws lambda get-function-configuration --function-name "$LAMBDA_FUNCTION" \
+            --query "State" --output text 2>/dev/null || echo "no-existe")
+
+          if [ -z "$IID" ] || [ "$IID" = "None" ]; then
+            {
+              echo "### Estado del Entorno AWS ($AWS_REGION)"
+              echo "| Recurso | Estado |"
+              echo "|---|---|"
+              echo "| **EC2 ($EC2_TAG)** | **No creada aún** (se creará automáticamente al ejecutar *CD Despliegue Manual*) |"
+              echo "| **Lambda ($LAMBDA_FUNCTION)** | \`$LAMBDA_STATE\` |"
+              echo "| **RDS ($RDS_ID)** | \`$RDS_STATUS\` |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [ "${{ inputs.accion }}" != "estado" ]; then
+              echo "::warning::La instancia EC2 $EC2_TAG aún no existe. Ejecuta primero el workflow 'CD (Despliegue Manual a AWS)'."
+            fi
+            exit 0
+          fi
 
           case "${{ inputs.accion }}" in
             iniciar)
@@ -65,6 +79,18 @@ jobs:
               echo "Encendiendo EC2 $IID..."
               aws ec2 start-instances --instance-ids "$IID" >/dev/null
               aws ec2 wait instance-running --instance-ids "$IID"
+              PUBLIC_IP=$(aws ec2 describe-instances --instance-ids "$IID" --query "Reservations[0].Instances[0].PublicIpAddress" --output text)
+              API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)
+              if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
+                for IID_INT in $(aws apigatewayv2 get-integrations --api-id "$API_ID" --query "Items[].IntegrationId" --output text); do
+                  URI=$(aws apigatewayv2 get-integration --api-id "$API_ID" --integration-id "$IID_INT" --query IntegrationUri --output text)
+                  if echo "$URI" | grep -q "{proxy}"; then
+                    aws apigatewayv2 update-integration --api-id "$API_ID" --integration-id "$IID_INT" --integration-uri "http://$PUBLIC_IP/{proxy}" >/dev/null
+                  else
+                    aws apigatewayv2 update-integration --api-id "$API_ID" --integration-id "$IID_INT" --integration-uri "http://$PUBLIC_IP/" >/dev/null
+                  fi
+                done
+              fi
               ;;
             detener)
               echo "Deteniendo EC2 $IID (deja de cobrar cómputo por hora)..."
@@ -83,10 +109,11 @@ jobs:
           URL="https://${API_ID}.execute-api.${AWS_REGION}.amazonaws.com"
 
           {
-            echo "### Estado del Entorno AWS"
+            echo "### Estado del Entorno AWS ($AWS_REGION)"
             echo "| Recurso | Valor |"
             echo "|---|---|"
             echo "| **EC2 ($EC2_TAG)** | \`$IID\` — **$EC2_STATE** (IP: \`$IP\`) |"
+            echo "| **Lambda ($LAMBDA_FUNCTION)** | \`$LAMBDA_STATE\` |"
             echo "| **RDS ($RDS_ID)** | \`$RDS_STATUS\` |"
             if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
               echo "| **URL Dashboard HTTPS** | $URL |"
