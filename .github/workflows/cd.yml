@@ -1,12 +1,10 @@
-name: CD
+name: CD (Despliegue Manual a AWS)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       componente:
-        description: "Qué desplegar"
+        description: "Componente a desplegar en AWS"
         type: choice
         options: [todo, backend, lambda]
         default: todo
@@ -32,7 +30,7 @@ env:
 jobs:
   deploy-backend:
     name: Backend + Dashboard -> EC2
-    if: github.event_name == 'push' || inputs.componente != 'lambda'
+    if: inputs.componente != 'lambda'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -67,18 +65,28 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
-      - name: Desplegar en EC2 vía SSM
+      - name: Asegurar EC2 encendida y desplegar vía SSM
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           set -euo pipefail
           IID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=$EC2_TAG" "Name=instance-state-name,Values=running" \
+            --filters "Name=tag:Name,Values=$EC2_TAG" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
             --query "Reservations[0].Instances[0].InstanceId" --output text)
           if [ -z "$IID" ] || [ "$IID" = "None" ]; then
-            echo "::error::No hay instancia EC2 en ejecución con tag Name=$EC2_TAG"; exit 1
+            echo "::error::No existe instancia EC2 con tag Name=$EC2_TAG"; exit 1
           fi
-          echo "Instancia: $IID"
+          STATE=$(aws ec2 describe-instances --instance-ids "$IID" --query "Reservations[0].Instances[0].State.Name" --output text)
+          echo "Instancia: $IID (estado actual: $STATE)"
+          if [ "$STATE" = "stopped" ]; then
+            echo "Encendiendo instancia $IID..."
+            aws ec2 start-instances --instance-ids "$IID" >/dev/null
+            aws ec2 wait instance-running --instance-ids "$IID"
+            sleep 25
+          elif [ "$STATE" != "running" ]; then
+            aws ec2 wait instance-running --instance-ids "$IID"
+            sleep 15
+          fi
           # IMDSv2 con hop-limit 2: el contenedor (red bridge) puede usar el rol de la instancia (boto3)
           aws ec2 modify-instance-metadata-options --instance-id "$IID" \
             --http-tokens required --http-put-response-hop-limit 2 --http-endpoint enabled >/dev/null
@@ -96,7 +104,7 @@ jobs:
           STATUS=$(echo "$OUT" | jq -r '.Status')
           [ "$STATUS" = "Success" ] || { echo "::error::Despliegue en EC2 terminó con estado $STATUS"; exit 1; }
 
-      - name: Smoke test público (API Gateway)
+      - name: Smoke test público (API Gateway) y mostrar URL
         run: |
           API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)
           if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
@@ -105,7 +113,9 @@ jobs:
           URL="https://$API_ID.execute-api.$AWS_REGION.amazonaws.com"
           for _ in $(seq 1 20); do
             if curl -fsS "$URL/api/salud"; then
-              echo; echo "### Dashboard desplegado: $URL" >> "$GITHUB_STEP_SUMMARY"; exit 0
+              echo
+              echo "### URL del Dashboard y API: $URL" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
             fi
             sleep 6
           done
@@ -113,7 +123,7 @@ jobs:
 
   deploy-lambda:
     name: Lambda inferencia
-    if: github.event_name == 'push' || inputs.componente != 'backend'
+    if: inputs.componente != 'backend'
     runs-on: ubuntu-latest
     environment: production
     steps:

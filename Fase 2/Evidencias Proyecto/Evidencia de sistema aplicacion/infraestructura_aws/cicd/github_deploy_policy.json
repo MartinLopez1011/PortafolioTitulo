@@ -29,28 +29,27 @@
     {
       "Sid": "Describe",
       "Effect": "Allow",
-      "Action": ["ec2:DescribeInstances", "apigateway:GET", "ssm:GetCommandInvocation", "ssm:ListCommandInvocations"],
+      "Action": ["ec2:DescribeInstances", "rds:DescribeDBInstances", "apigateway:GET", "ssm:GetCommandInvocation", "ssm:ListCommandInvocations"],
       "Resource": "*"
     },
     {
-      "Sid": "SsmOnQlaServer",
+      "Sid": "ControlAndSsmOnQlaServer",
       "Effect": "Allow",
-      "Action": "ssm:SendCommand",
+      "Action": ["ssm:SendCommand", "ec2:StartInstances", "ec2:StopInstances", "ec2:ModifyInstanceMetadataOptions"],
       "Resource": "arn:aws:ec2:__REGION__:__ACCOUNT__:instance/*",
       "Condition": {"StringEquals": {"aws:ResourceTag/Name": "qla-servidor"}}
+    },
+    {
+      "Sid": "ControlRdsQla",
+      "Effect": "Allow",
+      "Action": ["rds:StartDBInstance", "rds:StopDBInstance"],
+      "Resource": "arn:aws:rds:__REGION__:__ACCOUNT__:db:qla-mantpred"
     },
     {
       "Sid": "SsmRunShellDoc",
       "Effect": "Allow",
       "Action": "ssm:SendCommand",
       "Resource": "arn:aws:ssm:__REGION__::document/AWS-RunShellScript"
-    },
-    {
-      "Sid": "ImdsHopLimitForContainers",
-      "Effect": "Allow",
-      "Action": "ec2:ModifyInstanceMetadataOptions",
-      "Resource": "arn:aws:ec2:__REGION__:__ACCOUNT__:instance/*",
-      "Condition": {"StringEquals": {"aws:ResourceTag/Name": "qla-servidor"}}
     }
   ]
 }
