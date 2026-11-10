@@ -1,31 +1,36 @@
 #!/bin/bash
-# Configuración ÚNICA en la cuenta AWS para que GitHub Actions despliegue sin claves (OIDC).
-# Requisitos: AWS CLI con credenciales de administrador de la cuenta, jq.
-# Uso:
-#   ./setup_github_oidc.sh                       # repo por defecto MartinLopez1011/PortafolioTitulo
-#   EC2_ROLE=MiRolEC2 ./setup_github_oidc.sh     # además da permiso ECR de lectura al rol de la EC2
+# Configuración de credenciales AWS para GitHub Actions.
+# 1. Intenta configurar OIDC (sin claves estáticas).
+# 2. Si una Service Control Policy (SCP) de AWS Organizations bloquea OIDC,
+#    crea automáticamente un usuario IAM de mínimo privilegio (github-actions-qla-deploy)
+#    y genera AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY para GitHub Secrets.
 set -euo pipefail
 
 REPO="${REPO:-MartinLopez1011/PortafolioTitulo}"
 ROLE_NAME="${ROLE_NAME:-github-actions-qla-deploy}"
-REGION="${AWS_REGION:-us-east-1}"
+USER_NAME="${USER_NAME:-github-actions-qla-deploy}"
+REGION="${AWS_REGION:-$(aws configure get region 2>/dev/null || echo us-east-2)}"
 AQUI="$(cd "$(dirname "$0")" && pwd)"
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 PROVIDER_ARN="arn:aws:iam::${ACCOUNT}:oidc-provider/token.actions.githubusercontent.com"
+POLICY=$(sed -e "s/__ACCOUNT__/${ACCOUNT}/g" -e "s/__REGION__/${REGION}/g" "$AQUI/github_deploy_policy.json")
 
 echo ">> Cuenta $ACCOUNT, región $REGION, repo $REPO"
 
+OIDC_OK=true
 if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$PROVIDER_ARN" >/dev/null 2>&1; then
-  echo ">> Creando proveedor OIDC de GitHub"
-  aws iam create-open-id-connect-provider \
-    --url https://token.actions.githubusercontent.com \
-    --client-id-list sts.amazonaws.com \
-    --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1 >/dev/null
-else
-  echo ">> Proveedor OIDC ya existe"
+  echo ">> Intentando crear proveedor OIDC de GitHub..."
+  if ! aws iam create-open-id-connect-provider \
+      --url https://token.actions.githubusercontent.com \
+      --client-id-list sts.amazonaws.com \
+      --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1 >/dev/null 2>&1; then
+    echo ">> AVISO: La cuenta tiene una SCP que bloquea crear proveedores OIDC. Cambiando a modo Usuario IAM + GitHub Secrets..."
+    OIDC_OK=false
+  fi
 fi
 
-TRUST=$(cat <<JSON
+if [ "$OIDC_OK" = true ]; then
+  TRUST=$(cat <<JSON
 {
   "Version": "2012-10-17",
   "Statement": [{
@@ -42,34 +47,49 @@ TRUST=$(cat <<JSON
   }]
 }
 JSON
-)
-
-if aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
-  echo ">> Actualizando trust policy de $ROLE_NAME"
-  aws iam update-assume-role-policy --role-name "$ROLE_NAME" --policy-document "$TRUST"
-else
-  echo ">> Creando rol $ROLE_NAME"
-  aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document "$TRUST" \
-    --description "Despliegue CI/CD QLA desde GitHub Actions" --max-session-duration 3600 >/dev/null
+  )
+  if aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
+    aws iam update-assume-role-policy --role-name "$ROLE_NAME" --policy-document "$TRUST"
+  else
+    aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document "$TRUST" \
+      --description "Despliegue CI/CD QLA desde GitHub Actions" --max-session-duration 3600 >/dev/null
+  fi
+  aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name qla-cicd-deploy --policy-document "$POLICY"
+  ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query Role.Arn --output text)
+  echo
+  echo "Listo (Modo OIDC). Configura en GitHub > Settings > Secrets and variables > Actions > Variables:"
+  echo "  AWS_ROLE_ARN = $ROLE_ARN"
+  echo "  AWS_REGION   = $REGION"
+  exit 0
 fi
 
-POLICY=$(sed -e "s/__ACCOUNT__/${ACCOUNT}/g" -e "s/__REGION__/${REGION}/g" "$AQUI/github_deploy_policy.json")
-aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name qla-cicd-deploy --policy-document "$POLICY"
-echo ">> Política de mínimo privilegio aplicada"
-
-if [ -n "${EC2_ROLE:-}" ]; then
-  aws iam attach-role-policy --role-name "$EC2_ROLE" \
-    --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
-  aws iam attach-role-policy --role-name "$EC2_ROLE" \
-    --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-  echo ">> Rol de la EC2 ($EC2_ROLE) con lectura ECR + SSM"
+# Fallback: Usuario IAM con política de mínimo privilegio
+if ! aws iam get-user --user-name "$USER_NAME" >/dev/null 2>&1; then
+  echo ">> Creando usuario IAM $USER_NAME..."
+  aws iam create-user --user-name "$USER_NAME" >/dev/null
 fi
 
-ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query Role.Arn --output text)
+aws iam put-user-policy --user-name "$USER_NAME" --policy-name qla-cicd-deploy --policy-document "$POLICY"
+
+# Limpiar llaves antiguas si ya tiene el máximo de 2
+EXISTING_KEYS=$(aws iam list-access-keys --user-name "$USER_NAME" --query 'AccessKeyMetadata[].AccessKeyId' --output text)
+COUNT=$(echo "$EXISTING_KEYS" | wc -w)
+if [ "$COUNT" -ge 2 ]; then
+  FIRST_KEY=$(echo "$EXISTING_KEYS" | awk '{print $1}')
+  aws iam delete-access-key --user-name "$USER_NAME" --access-key-id "$FIRST_KEY"
+fi
+
+CREDS=$(aws iam create-access-key --user-name "$USER_NAME" --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text)
+AK_ID=$(echo "$CREDS" | awk '{print $1}')
+AK_SECRET=$(echo "$CREDS" | awk '{print $2}')
+
 echo
-echo "Listo. Configura en GitHub (Settings > Secrets and variables > Actions > Variables):"
-echo "  AWS_ROLE_ARN = $ROLE_ARN"
-echo "  AWS_REGION   = $REGION"
-echo "o con gh CLI:"
-echo "  gh variable set AWS_ROLE_ARN -R $REPO -b '$ROLE_ARN'"
-echo "  gh variable set AWS_REGION   -R $REPO -b '$REGION'"
+echo "=================================================================="
+echo "Listo (Modo IAM Secrets). Configura en tu repositorio de GitHub:"
+echo "1) En Settings > Secrets and variables > Actions > Secrets (New repository secret):"
+echo "   AWS_ACCESS_KEY_ID     = $AK_ID"
+echo "   AWS_SECRET_ACCESS_KEY = $AK_SECRET"
+echo
+echo "2) En Settings > Secrets and variables > Actions > Variables (New repository variable):"
+echo "   AWS_REGION            = $REGION"
+echo "=================================================================="
