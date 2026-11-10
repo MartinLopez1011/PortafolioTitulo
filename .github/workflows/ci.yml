@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  APP_DIR: "Fase 2/Evidencias Proyecto/Evidencia de sistema aplicacion"
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      lambda: ${{ steps.filter.outputs.lambda }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'Fase 2/Evidencias Proyecto/Evidencia de sistema aplicacion/Backend/**'
+              - '.github/workflows/**'
+            lambda:
+              - 'Fase 2/Evidencias Proyecto/Evidencia de sistema aplicacion/lambda_inferencia/**'
+              - '.github/workflows/**'
+
+  backend:
+    name: backend
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}/Backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ env.APP_DIR }}/Backend/requirements*.txt
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+      - name: Lint (ruff)
+        run: ruff check app tests
+      - name: Tests unitarios
+        run: pytest --cov=app --cov-report=term --junitxml=pytest-backend.xml
+      - uses: docker/setup-buildx-action@v3
+      - name: Build imagen Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.APP_DIR }}/Backend
+          load: true
+          tags: qla-backend:ci
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+      - name: Smoke test del contenedor
+        working-directory: .
+        run: |
+          docker run -d --name qla -p 8000:8000 \
+            -e MODO_DEMO=1 -e DEMO_CLAVE=ClaveDemo2026 -e JWT_SECRET="$(openssl rand -hex 32)" qla-backend:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/api/salud; then break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:8000/api/salud | grep -q '"api":"ok"'
+          curl -fsS http://localhost:8000/ | grep -qi '<html'
+          docker logs qla
+
+  lambda:
+    name: lambda
+    needs: changes
+    if: needs.changes.outputs.lambda == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build imagen Lambda
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.APP_DIR }}/lambda_inferencia
+          platforms: linux/amd64
+          provenance: false
+          load: true
+          tags: qla-inferencia:ci
+          cache-from: type=gha,scope=lambda
+          cache-to: type=gha,mode=max,scope=lambda
+      - name: Tests unitarios (dentro de la imagen)
+        run: |
+          docker run --rm --entrypoint /bin/sh \
+            -v "$PWD/$APP_DIR/lambda_inferencia/tests:/var/task/tests:ro" \
+            -e AWS_REGION=us-east-1 -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
+            qla-inferencia:ci -c "pip install -q pytest && cd /var/task && python -m pytest tests -q -p no:cacheprovider"
+      - name: Smoke test con Runtime Interface Emulator
+        run: |
+          docker run -d --name rie -p 9000:8080 \
+            -e AWS_REGION=us-east-1 -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
+            -e AWS_EC2_METADATA_DISABLED=true qla-inferencia:ci
+          sleep 5
+          RESP=$(curl -sS --max-time 120 -XPOST http://localhost:9000/2015-03-31/functions/function/invocations \
+            --data-binary "@$APP_DIR/lambda_inferencia/app/test_payload_flat.json")
+          echo "$RESP" | head -c 2000; echo
+          echo "$RESP" | jq -e '.statusCode == 200'

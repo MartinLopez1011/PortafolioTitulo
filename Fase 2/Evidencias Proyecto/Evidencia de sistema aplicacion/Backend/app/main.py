@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg_pool import PoolTimeout
 
 from . import config, db
-from .rutas import auth, planta, usuarios
+from .rutas import auth, ingesta, pantallas, planta, simulacion, usuarios
 
 
 @asynccontextmanager
@@ -38,17 +38,17 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "X-Clave-Ingesta"],
 )
 
 
 @app.exception_handler(PoolTimeout)
 @app.exception_handler(psycopg.OperationalError)
 async def base_no_disponible(request: Request, exc: Exception):
-    # Ocurre si Supabase está pausado o no hay conexión
+    # Ocurre si la base (RDS) está detenida o no hay conexión
     return JSONResponse(status_code=503, content={"detail": "Base de datos no disponible. "
-                                                  "Revise que el proyecto de Supabase esté activo."})
+                                                  "Revise que la instancia RDS esté disponible."})
 
 
 @app.get("/api/salud", tags=["Sistema"], summary="Estado de la API y de la base de datos")
@@ -64,6 +64,9 @@ def salud():
 app.include_router(auth.router, prefix="/api")
 app.include_router(usuarios.router, prefix="/api")
 app.include_router(planta.router, prefix="/api")
+app.include_router(pantallas.router, prefix="/api")
+app.include_router(ingesta.router, prefix="/api")
+app.include_router(simulacion.router, prefix="/api")
 
 # La web (login y dashboard) se sirve desde la misma API: http://127.0.0.1:8000
 # Se monta al final para que las rutas /api tengan prioridad.

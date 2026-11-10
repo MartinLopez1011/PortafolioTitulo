@@ -1,0 +1,84 @@
+name: Control Servidor AWS (Ahorro de Costos)
+
+on:
+  workflow_dispatch:
+    inputs:
+      accion:
+        description: "Acción sobre el servidor EC2 (y RDS si existe)"
+        type: choice
+        options:
+          - estado
+          - iniciar
+          - detener
+        default: estado
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  EC2_TAG: qla-servidor
+  RDS_ID: qla-mantpred
+  API_NAME: qla-dashboard
+
+jobs:
+  control:
+    name: "${{ inputs.accion }} servidor AWS"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Credenciales AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ejecutar acción (${{ inputs.accion }})
+        run: |
+          set -euo pipefail
+          IID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=$EC2_TAG" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+            --query "Reservations[0].Instances[0].InstanceId" --output text)
+          if [ -z "$IID" ] || [ "$IID" = "None" ]; then
+            echo "::error::No se encontró instancia EC2 con tag Name=$EC2_TAG"; exit 1
+          fi
+
+          RDS_STATUS=$(aws rds describe-db-instances --db-instance-identifier "$RDS_ID" \
+            --query "DBInstances[0].DBInstanceStatus" --output text 2>/dev/null || echo "no-existe")
+
+          case "${{ inputs.accion }}" in
+            iniciar)
+              if [ "$RDS_STATUS" = "stopped" ]; then
+                echo "Encendiendo RDS $RDS_ID..."
+                aws rds start-db-instance --db-instance-identifier "$RDS_ID" >/dev/null || true
+              fi
+              echo "Encendiendo EC2 $IID..."
+              aws ec2 start-instances --instance-ids "$IID" >/dev/null
+              aws ec2 wait instance-running --instance-ids "$IID"
+              ;;
+            detener)
+              echo "Deteniendo EC2 $IID (deja de cobrar cómputo por hora)..."
+              aws ec2 stop-instances --instance-ids "$IID" >/dev/null
+              aws ec2 wait instance-stopped --instance-ids "$IID"
+              if [ "$RDS_STATUS" = "available" ]; then
+                echo "Deteniendo RDS $RDS_ID..."
+                aws rds stop-db-instance --db-instance-identifier "$RDS_ID" >/dev/null || true
+              fi
+              ;;
+          esac
+
+          EC2_STATE=$(aws ec2 describe-instances --instance-ids "$IID" --query "Reservations[0].Instances[0].State.Name" --output text)
+          IP=$(aws ec2 describe-instances --instance-ids "$IID" --query "Reservations[0].Instances[0].PublicIpAddress" --output text)
+          API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)
+          URL="https://${API_ID}.execute-api.${AWS_REGION}.amazonaws.com"
+
+          {
+            echo "### Estado del Entorno AWS"
+            echo "| Recurso | Valor |"
+            echo "|---|---|"
+            echo "| **EC2 ($EC2_TAG)** | \`$IID\` — **$EC2_STATE** (IP: \`$IP\`) |"
+            echo "| **RDS ($RDS_ID)** | \`$RDS_STATUS\` |"
+            if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
+              echo "| **URL Dashboard HTTPS** | $URL |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

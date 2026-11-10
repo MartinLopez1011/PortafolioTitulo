@@ -225,7 +225,7 @@ def cargar(df: pd.DataFrame, sens: list, equipo: str, reemplazar: bool) -> None:
         print(f"\nTabla lecturas : {t_lect / 1e6:.0f} MB")
         print(f"Base completa  : {t_bd / 1e6:.0f} MB de {LIMITE_PLAN_FREE_MB} MB del plan gratis")
         if t_bd / 1e6 > AVISO_MB:
-            print("AVISO: te acercas al límite. Usa:  SELECT mantpred.purgar_lecturas_simuladas(14);")
+            print("AVISO: te acercas al límite. Usa:  SELECT mantpred.purgar_datos_simulados(14);")
 
 
 # ----------------------------------------------------------------------
