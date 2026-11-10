@@ -157,7 +157,7 @@ def iniciar_simulacion(ruta_csv: str, intervalo_seg: int = 3, max_envios: int = 
 
 if __name__ == "__main__":
     cola_local = ColaStoreAndForward()
-    ruta_test = Path(__file__).resolve().parent.parent.parent / "lambda_inferencia" / "app" / "test_payload.json"
+    ruta_test = Path(__file__).resolve().parent.parent / "lambda_inferencia" / "app" / "test_payload.json"
     with open(ruta_test, "r", encoding="utf-8") as f:
         muestra = json.load(f)
 

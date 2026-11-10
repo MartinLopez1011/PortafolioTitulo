@@ -146,7 +146,7 @@ Notebook Jupyter: `Prediccion_Fallas_Molino_QLA.ipynb`
 Simulador de dispositivo IoT edge que envía datos de sensores a AWS.
 
 **Contenido principal:**
-- `certs/simulador_edge.py` - Script que:
+- `simulador_edge.py` - Script que:
   - Simula lectura de sensores (temperatura, vibración, presión, etc.)
   - Conecta con AWS IoT Core usando credenciales
   - Publica datos en tópicos MQTT
