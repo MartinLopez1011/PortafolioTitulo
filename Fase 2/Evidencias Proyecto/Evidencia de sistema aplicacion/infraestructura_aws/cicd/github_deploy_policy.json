@@ -1,0 +1,56 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcrAuth",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcrPushRepos",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:CreateRepository", "ecr:DescribeRepositories", "ecr:BatchCheckLayerAvailability",
+        "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage"
+      ],
+      "Resource": [
+        "arn:aws:ecr:__REGION__:__ACCOUNT__:repository/qla-backend",
+        "arn:aws:ecr:__REGION__:__ACCOUNT__:repository/qla-inferencia"
+      ]
+    },
+    {
+      "Sid": "LambdaInferencia",
+      "Effect": "Allow",
+      "Action": ["lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:UpdateFunctionCode", "lambda:InvokeFunction"],
+      "Resource": "arn:aws:lambda:__REGION__:__ACCOUNT__:function:qla-inferencia"
+    },
+    {
+      "Sid": "Describe",
+      "Effect": "Allow",
+      "Action": ["ec2:DescribeInstances", "apigateway:GET", "ssm:GetCommandInvocation", "ssm:ListCommandInvocations"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SsmOnQlaServer",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": "arn:aws:ec2:__REGION__:__ACCOUNT__:instance/*",
+      "Condition": {"StringEquals": {"aws:ResourceTag/Name": "qla-servidor"}}
+    },
+    {
+      "Sid": "SsmRunShellDoc",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": "arn:aws:ssm:__REGION__::document/AWS-RunShellScript"
+    },
+    {
+      "Sid": "ImdsHopLimitForContainers",
+      "Effect": "Allow",
+      "Action": "ec2:ModifyInstanceMetadataOptions",
+      "Resource": "arn:aws:ec2:__REGION__:__ACCOUNT__:instance/*",
+      "Condition": {"StringEquals": {"aws:ResourceTag/Name": "qla-servidor"}}
+    }
+  ]
+}

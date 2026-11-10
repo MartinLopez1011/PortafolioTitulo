@@ -14,6 +14,11 @@
 #   .\desplegar_dashboard_aws.ps1 -Accion detener       # apaga el servidor (ahorra crédito)
 #
 # Los secretos (clave de la base, JWT, clave de ingesta) NO se muestran en pantalla.
+#
+# NOTA CI/CD: desde que existe .github/workflows/cd.yml, las actualizaciones del backend se
+# despliegan automáticamente como contenedor Docker (ECR qla-backend) al hacer merge a main.
+# El primer deploy desactiva el servicio systemd "qla". No usar "-Accion actualizar" después
+# de esa migración (ver docs/CICD.md). Este script sigue siendo válido para crear la infraestructura.
 # ==============================================================================
 param(
     [ValidateSet("desplegar", "actualizar", "estado", "iniciar", "detener")]
