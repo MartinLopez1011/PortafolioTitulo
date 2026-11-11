@@ -33,6 +33,23 @@ def _resolver_iot_endpoint(session_obj) -> str:
         return "a2ep4ljpgw7df7-ats.iot.us-east-1.amazonaws.com"
 
 
+def _resolver_bucket(session_obj, base_bucket: str) -> str:
+    if os.environ.get("S3_BUCKET"):
+        return os.environ["S3_BUCKET"]
+    s3_client = session_obj.client("s3")
+    try:
+        s3_client.head_bucket(Bucket=base_bucket)
+        return base_bucket
+    except Exception:
+        try:
+            acc_id = session_obj.client("sts").get_caller_identity()["Account"]
+            candidate = f"{base_bucket}-{acc_id}"
+            s3_client.head_bucket(Bucket=candidate)
+            return candidate
+        except Exception:
+            return base_bucket
+
+
 TOPIC_TELEMETRIA = "planta/asfalto/molino/telemetria"
 TOPIC_PREDICCIONES = "planta/asfalto/molino/predicciones"
 
@@ -41,6 +58,7 @@ print("🚀 VALIDACIÓN INTEGRAL DE LA ARQUITECTURA (3 RUTAS QLA)")
 print("=" * 70)
 
 session = boto3.Session(region_name=REGION)
+BUCKET = _resolver_bucket(session, BUCKET)
 IOT_ENDPOINT = _resolver_iot_endpoint(session)
 iot_data = session.client("iot-data", endpoint_url=f"https://{IOT_ENDPOINT}")
 dynamodb = session.resource("dynamodb")

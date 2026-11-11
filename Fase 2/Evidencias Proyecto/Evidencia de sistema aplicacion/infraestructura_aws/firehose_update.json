@@ -19,7 +19,7 @@
             "RoleARN": "${FIREHOSE_ROLE_ARN}",
             "DatabaseName": "qla_planta_asfalto",
             "TableName": "telemetria_molino",
-            "Region": "us-east-1",
+            "Region": "us-east-2",
             "VersionId": "LATEST"
         },
         "InputFormatConfiguration": {
