@@ -7,7 +7,7 @@
 <link rel="icon" href="/img/logo-qla.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/app.css">
 <script>
   // Sin sesión no se muestra el panel
@@ -21,7 +21,7 @@
     <span class="logo"><img src="/img/logo-qla.png" alt="QLA"></span>
     <div class="titulo">
       <h1>Molino coloidal MC-01</h1>
-      <p>Química Latinoamericana: Planta de emulsión asfáltica</p>
+      <p>Química Latinoamericana · Planta de emulsión asfáltica</p>
     </div>
   </div>
   <div class="cabecera-der">
@@ -29,8 +29,8 @@
       <strong id="reloj-hora">--:--</strong>
       <span id="reloj-fecha">--</span>
     </div>
-    <span class="chip" id="chip-estado"><span class="punto gris"></span><span class="txt">Sin datos</span></span>
-    <span class="chip" id="chip-modelos"><span class="punto gris"></span><span class="txt">Modelos: diagnóstico, vigilancia, predicción</span></span>
+    <span class="chip" id="chip-estado"><span class="punto gris" aria-hidden="true"></span><span class="txt">Sin datos</span></span>
+    <span class="chip" id="chip-modelos"><span class="punto gris" aria-hidden="true"></span><span class="txt">Modelos: diagnóstico, vigilancia, predicción</span></span>
     <div class="usuario">
       <button class="btn-usuario" id="btn-usuario" aria-haspopup="true" aria-expanded="false">
         <span id="usuario-nombre">Usuario</span><span class="rol" id="usuario-rol"></span>
@@ -43,17 +43,18 @@
 </header>
 
 <nav class="pestanas" role="tablist" aria-label="Pantallas">
-  <button role="tab" data-tab="proceso" aria-selected="true">Proceso</button>
-  <button role="tab" data-tab="prediccion" aria-selected="false">Predicción</button>
-  <button role="tab" data-tab="alarmas" aria-selected="false">Alarmas <span class="contador" id="cont-alarmas" hidden></span></button>
-  <button role="tab" data-tab="salud" aria-selected="false">Salud del equipo</button>
-  <button role="tab" data-tab="mantenimiento" aria-selected="false">Mantenimiento</button>
-  <button role="tab" data-tab="simulacion" aria-selected="false">Simulación (demo)</button>
-  <button role="tab" data-tab="usuarios" aria-selected="false" id="tab-usuarios" hidden>Usuarios</button>
+  <button role="tab" id="tab-btn-proceso" data-tab="proceso" aria-controls="vista-proceso" aria-selected="true" tabindex="0">Proceso</button>
+  <button role="tab" id="tab-btn-prediccion" data-tab="prediccion" aria-controls="vista-prediccion" aria-selected="false" tabindex="-1">Predicción</button>
+  <button role="tab" id="tab-btn-alarmas" data-tab="alarmas" aria-controls="vista-alarmas" aria-selected="false" tabindex="-1">Alarmas <span class="contador" id="cont-alarmas" hidden></span></button>
+  <button role="tab" id="tab-btn-salud" data-tab="salud" aria-controls="vista-salud" aria-selected="false" tabindex="-1">Salud del equipo</button>
+  <button role="tab" id="tab-btn-mantenimiento" data-tab="mantenimiento" aria-controls="vista-mantenimiento" aria-selected="false" tabindex="-1">Mantenimiento</button>
+  <button role="tab" id="tab-btn-simulacion" data-tab="simulacion" aria-controls="vista-simulacion" aria-selected="false" tabindex="-1">Simulación (demo)</button>
+  <button role="tab" id="tab-btn-usuarios" data-tab="usuarios" aria-controls="vista-usuarios" aria-selected="false" tabindex="-1" id="tab-usuarios" hidden>Usuarios</button>
 </nav>
 
 <div class="barra-sim" id="barra-sim">
-  <button class="btn btn-primario" id="sim-play">Iniciar</button>
+  <span class="sim-badge" title="Controles del reproductor y simulador de telemetría">SIM</span>
+  <button class="btn btn-primario btn-chico" id="sim-play">Iniciar</button>
   <label>Velocidad <select id="sim-velocidad"></select></label>
   <label class="check" title="Con el calendario real, cuando la planta está detenida, en espera o en preparación el simulador avanza 1 hora por segundo"><input type="checkbox" id="sim-saltar" checked> Saltar paradas</label>
   <label>Funcionamiento <select id="sim-modo"><option value="">Calendario real (2026)</option></select></label>
@@ -63,24 +64,36 @@
 </div>
 
 <main>
-<div class="aviso" id="aviso-global" hidden></div>
+<div class="aviso" id="aviso-global" role="alert" aria-live="assertive" hidden></div>
 
 <!-- =============================== PROCESO =============================== -->
-<section class="vista" id="vista-proceso">
-  <div class="banner" id="banner">
-    <div>
-      <h2 id="banner-titulo">Cargando…</h2>
-      <p class="banner-accion" id="banner-accion"></p>
-      <p class="banner-origen" id="banner-origen"></p>
+<section class="vista" id="vista-proceso" role="tabpanel" aria-labelledby="tab-btn-proceso">
+  <div class="banner gris" id="banner" role="status" aria-live="polite">
+    <div class="banner-izq">
+      <span class="banner-badge" id="banner-badge">SIN DATOS</span>
+      <div class="banner-cuerpo">
+        <div class="banner-linea1">
+          <h2 id="banner-titulo">Cargando…</h2>
+          <span class="banner-sep" aria-hidden="true">·</span>
+          <p class="banner-origen" id="banner-origen"></p>
+        </div>
+        <p class="banner-accion" id="banner-accion"></p>
+      </div>
     </div>
     <div class="banner-der">
-      <span id="banner-desde"></span>
-      <button class="btn btn-oscuro" id="banner-ver" hidden>Ver alarmas</button>
+      <span class="banner-desde" id="banner-desde"></span>
+      <button class="btn btn-oscuro btn-chico" id="banner-ver" hidden>Ver alarmas</button>
     </div>
   </div>
 
   <div class="proceso-grid">
-    <div class="medidores" id="medidores-izq"></div>
+    <div class="tarjeta panel-metricas">
+      <div class="panel-metricas-cab">
+        <h3>Accionamiento y caudal</h3>
+        <span class="panel-metricas-sub">MC-01 / P-101</span>
+      </div>
+      <div class="medidores" id="medidores-izq"></div>
+    </div>
 
     <div class="tarjeta diagrama">
       <h3 class="diagrama-titulo" id="diagrama-titulo">Planta de emulsión / Línea de molienda</h3>
@@ -208,11 +221,17 @@
       <div class="leyenda">
         <span><i class="ln betun"></i>Betún</span><span><i class="ln solucion"></i>Solución jabonosa</span>
         <span><i class="ln agua"></i>Agua de limpieza</span><span><i class="ln emulsion"></i>Emulsión</span>
-        <span class="rojo">Rojo: fuera de banda</span><span class="morado">Morado: señalado por el autoencoder</span>
+        <span class="rojo">Rojo: fuera de banda</span><span class="morado">Cian: señalado por el autoencoder</span>
       </div>
     </div>
 
-    <div class="medidores" id="medidores-der"></div>
+    <div class="tarjeta panel-metricas">
+      <div class="panel-metricas-cab">
+        <h3>Variables térmicas y salud</h3>
+        <span class="panel-metricas-sub">TK / F-101 / AE</span>
+      </div>
+      <div class="medidores" id="medidores-der"></div>
+    </div>
   </div>
 
   <div class="tendencias" id="tendencias">
@@ -232,7 +251,7 @@
 </section>
 
 <!-- =============================== PREDICCIÓN =============================== -->
-<section class="vista" id="vista-prediccion" hidden>
+<section class="vista" id="vista-prediccion" role="tabpanel" aria-labelledby="tab-btn-prediccion" hidden>
   <div class="tarjeta">
     <h3>Semáforo de riesgo por equipo</h3>
     <div class="tabla-scroll">
@@ -257,7 +276,7 @@
 </section>
 
 <!-- =============================== ALARMAS =============================== -->
-<section class="vista" id="vista-alarmas" hidden>
+<section class="vista" id="vista-alarmas" role="tabpanel" aria-labelledby="tab-btn-alarmas" hidden>
   <div class="alarmas-grid">
     <div class="tarjeta">
       <h3>Activas</h3>
@@ -277,7 +296,7 @@
 </section>
 
 <!-- =============================== SALUD =============================== -->
-<section class="vista" id="vista-salud" hidden>
+<section class="vista" id="vista-salud" role="tabpanel" aria-labelledby="tab-btn-salud" hidden>
   <div class="kpis" id="kpis-salud"></div>
   <div class="tarjeta">
     <h3>Índice de salud del molino por día</h3>
@@ -296,7 +315,7 @@
 </section>
 
 <!-- =============================== MANTENIMIENTO =============================== -->
-<section class="vista" id="vista-mantenimiento" hidden>
+<section class="vista" id="vista-mantenimiento" role="tabpanel" aria-labelledby="tab-btn-mantenimiento" hidden>
   <div class="kpis" id="kpis-mant"></div>
   <div class="tarjeta">
     <h3>Estado por equipo</h3>
@@ -321,7 +340,7 @@
 </section>
 
 <!-- =============================== SIMULACIÓN =============================== -->
-<section class="vista" id="vista-simulacion" hidden>
+<section class="vista" id="vista-simulacion" role="tabpanel" aria-labelledby="tab-btn-simulacion" hidden>
   <div class="tarjeta">
     <h3>Inyectar una falla sobre la operación real</h3>
     <p class="texto">Los efectos se aplican encima de los datos reproducidos y pasan por todo el sistema en AWS: IoT Core, la Lambda de inferencia, DynamoDB y la base RDS. Las fallas graduales se desarrollan durante días: usa una velocidad alta y observa en Predicción cuándo sube el riesgo, antes de que la falla aparezca.</p>
@@ -344,13 +363,13 @@
 </section>
 
 <!-- =============================== USUARIOS =============================== -->
-<section class="vista" id="vista-usuarios" hidden>
+<section class="vista" id="vista-usuarios" role="tabpanel" aria-labelledby="tab-usuarios" hidden>
   <div class="tarjeta">
     <div class="tarjeta-cab">
       <h3>Usuarios</h3>
       <button class="btn btn-primario" id="btn-nuevo-usuario">Nuevo usuario</button>
     </div>
-    <div class="mensaje" id="msg-usuarios" hidden></div>
+    <div class="mensaje" id="msg-usuarios" role="status" aria-live="polite" hidden></div>
     <form class="form-usuario" id="form-usuario" hidden novalidate>
       <label>Nombre <input id="u-nombre" required minlength="2" maxlength="120"></label>
       <label>Correo <input id="u-email" type="email" required maxlength="150"></label>

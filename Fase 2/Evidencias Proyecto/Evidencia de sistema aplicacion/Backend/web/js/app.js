@@ -53,8 +53,8 @@
     espera: "gris", mantenimiento: "naranja", falla: "rojo" };
   const TIPO_TEXTO = { convencional: "convencional", plastomerico: "plastomérico", ninguno: "" };
 
-  const COLOR = { verde: "#45c46a", rojo: "#f0524f", morado: "#a77bf3", gris: "#6b7480", naranja: "#f28c38",
-    azul: "#4ea1ff", texto: "#eceef1", texto2: "#a3abb6", borde: "#2a313c" };
+  const COLOR = { verde: "#3ba56b", rojo: "#e05252", morado: "#3898b8", gris: "#667080", naranja: "#d97e38",
+    azul: "#4c8fd6", texto: "#e6e9ef", texto2: "#9ba4b4", borde: "#252c38" };
 
   // ------------------------------------------------------------------ utilidades
   const $ = (id) => document.getElementById(id);
@@ -95,7 +95,7 @@
   }
   window.addEventListener("resize", () => Object.values(graficos).forEach((g) => g.resize()));
   const EJE = { axisLine: { lineStyle: { color: COLOR.borde } }, axisLabel: { color: COLOR.texto2 },
-    splitLine: { lineStyle: { color: "#232a34" } } };
+    splitLine: { lineStyle: { color: "#1d232e" } } };
 
   // ------------------------------------------------------------------ cabecera y usuario
   $("usuario-nombre").textContent = usuario.nombre || usuario.email;
@@ -103,7 +103,19 @@
   $("btn-usuario").addEventListener("click", () => {
     const m = $("menu-usuario"); m.hidden = !m.hidden; $("btn-usuario").setAttribute("aria-expanded", String(!m.hidden));
   });
-  document.addEventListener("click", (e) => { if (!e.target.closest(".usuario")) $("menu-usuario").hidden = true; });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".usuario") && !$("menu-usuario").hidden) {
+      $("menu-usuario").hidden = true;
+      $("btn-usuario").setAttribute("aria-expanded", "false");
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("menu-usuario").hidden) {
+      $("menu-usuario").hidden = true;
+      $("btn-usuario").setAttribute("aria-expanded", "false");
+      $("btn-usuario").focus();
+    }
+  });
   $("btn-salir").addEventListener("click", () => { Sesion.cerrar(); location.replace("/login.html?motivo=salida"); });
   if (esAdmin) $("tab-usuarios").hidden = false;
 
@@ -121,53 +133,65 @@
   // ------------------------------------------------------------------ pestañas
   let pestana = "proceso";
   try { const g = sessionStorage.getItem("qla_pestana"); if (g && (g !== "usuarios" || esAdmin)) pestana = g; } catch {}
-  function mostrar(tab) {
+  function mostrar(tab, enfocar = false) {
     pestana = tab;
     try { sessionStorage.setItem("qla_pestana", tab); } catch {}
-    document.querySelectorAll(".pestanas [data-tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
+    document.querySelectorAll(".pestanas [data-tab]").forEach((b) => {
+      const activo = b.dataset.tab === tab;
+      b.setAttribute("aria-selected", String(activo));
+      b.setAttribute("tabindex", activo ? "0" : "-1");
+      if (activo && enfocar) b.focus();
+    });
     document.querySelectorAll(".vista").forEach((v) => { v.hidden = v.id !== "vista-" + tab; });
     refrescar(true);
     setTimeout(() => Object.values(graficos).forEach((g) => g.resize()), 30);
   }
   document.querySelectorAll(".pestanas [data-tab]").forEach((b) => b.addEventListener("click", () => mostrar(b.dataset.tab)));
-  document.addEventListener("click", (e) => { const b = e.target.closest("[data-ir]"); if (b) mostrar(b.dataset.ir); });
-  $("banner-ver").addEventListener("click", () => mostrar("alarmas"));
+  document.querySelector(".pestanas").addEventListener("keydown", (e) => {
+    const tabs = [...document.querySelectorAll('.pestanas [role="tab"]:not([hidden])')];
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    const nIdx = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : (i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    mostrar(tabs[nIdx].dataset.tab, true);
+  });
+  document.addEventListener("click", (e) => { const b = e.target.closest("[data-ir]"); if (b) mostrar(b.dataset.ir, true); });
+  $("banner-ver").addEventListener("click", () => mostrar("alarmas", true));
 
-  // ------------------------------------------------------------------ medidores (SVG)
-  const SVGNS = "http://www.w3.org/2000/svg";
-  function svg(tag, attrs) { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
-  function arco(cx, cy, r, a0, a1) {
-    const p = (a) => [cx + r * Math.cos((a * Math.PI) / 180), cy - r * Math.sin((a * Math.PI) / 180)];
-    const [x0, y0] = p(a0), [x1, y1] = p(a1);
-    return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${a0 - a1 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
-  }
-  const A0 = 200, A1 = -20;
+  // ------------------------------------------------------------------ métricas compactas (número + unidad + mini barra)
   const medidores = {};
   function crearMedidores(cont, lista) {
     lista.forEach(([tag, nombre]) => {
-      const fondo = svg("path", { d: arco(60, 56, 42, A0, A1), class: "arco-fondo" });
-      const val = svg("path", { d: arco(60, 56, 42, A0, A1), class: "arco" });
-      const txt = svg("text", { x: 60, y: 62, "text-anchor": "middle", class: "valor" });
-      const uni = svg("text", { x: 60, y: 82, "text-anchor": "middle", class: "unidad" });
-      const s = svg("svg", { viewBox: "0 0 120 88", role: "img", "aria-label": nombre });
-      s.append(fondo, val, txt, uni);
-      const caja = el("div", { clase: "medidor" }, el("div", { clase: "nombre" }, nombre), s);
+      const ico = el("span", { clase: "metrica-estado-ico", "aria-hidden": "true" });
+      const txt = el("span", { clase: "metrica-valor" }, "—");
+      const uni = el("span", { clase: "metrica-unidad" });
+      const relleno = el("div", { clase: "metrica-relleno" });
+      const barra = el("div", { clase: "metrica-barra", "aria-hidden": "true" }, relleno);
+      const caja = el(
+        "div",
+        { clase: "metrica-item", role: "group", "aria-label": nombre },
+        el("div", { clase: "metrica-cab" },
+          el("span", { clase: "metrica-nombre" }, nombre),
+          el("span", { clase: "metrica-lectura" }, ico, txt, uni)
+        ),
+        barra
+      );
       cont.append(caja);
-      const largo = val.getTotalLength ? 0 : 0;
-      medidores[tag] = { caja, val, txt, uni, largo };
+      medidores[tag] = { caja, ico, val: relleno, txt, uni };
     });
   }
   crearMedidores($("medidores-izq"), MED_IZQ);
   crearMedidores($("medidores-der"), MED_DER);
+
   function pintarMedidor(tag, valor, frac, color, unidad, dec, clase) {
     const m = medidores[tag]; if (!m) return;
-    if (!m.largo) { try { m.largo = m.val.getTotalLength(); } catch { m.largo = 207; } m.val.style.strokeDasharray = m.largo; }
     const f = Math.max(0, Math.min(1, Number.isFinite(frac) ? frac : 0));
-    m.val.style.strokeDashoffset = m.largo * (1 - f);
-    m.val.style.stroke = color;
+    m.val.style.width = `${(f * 100).toFixed(1)}%`;
+    m.val.style.backgroundColor = color;
     m.txt.textContent = n(valor, dec);
     m.uni.textContent = unidad || "";
-    m.caja.className = "medidor" + (clase ? " " + clase : "");
+    m.ico.textContent = clase === "fuera" ? "▲" : clase === "ae" ? "◆" : "";
+    m.caja.className = "metrica-item" + (clase ? " " + clase : "") + (color === COLOR.gris ? " apagado" : "");
   }
 
   // ------------------------------------------------------------------ PROCESO
@@ -175,17 +199,22 @@
   async function cargarProceso() {
     const d = await api("/proceso");
     ultimoProceso = d;
-    if (!d.ts) { $("banner-titulo").textContent = "Sin datos todavía"; $("banner-accion").textContent = "Inicia la simulación o conecta la planta."; return; }
+    if (!d.ts) {
+      $("banner-badge").textContent = "SIN DATOS";
+      $("banner-titulo").textContent = "Sin datos todavía";
+      $("banner-accion").textContent = "Inicia la simulación o conecta la planta.";
+      return;
+    }
     pintarCabecera(d);
     pintarBanner(d);
     const porTag = Object.fromEntries(d.sensores.map((s) => [s.tag, s]));
-    // Medidores
+    // Métricas compactas
     [...MED_IZQ, ...MED_DER].forEach(([tag]) => {
       if (tag === "AE") {
         const v = d.vigilancia;
-        if (!v || !d.en_marcha) { pintarMedidor("AE", null, 0, COLOR.gris, "error", 3, ""); return; }
+        if (!v || !d.en_marcha) { pintarMedidor("AE", null, 0, COLOR.gris, "err", 3, ""); return; }
         const sobre = v.umbral && v.error > v.umbral;
-        pintarMedidor("AE", v.error, v.umbral ? v.error / (v.umbral * 4) : 0, sobre ? COLOR.rojo : COLOR.verde, "error", 3, sobre ? "fuera" : "");
+        pintarMedidor("AE", v.error, v.umbral ? v.error / (v.umbral * 4) : 0, sobre ? COLOR.rojo : COLOR.verde, "err", 3, sobre ? "fuera" : "");
         return;
       }
       const s = porTag[tag];
@@ -207,18 +236,24 @@
 
   function textoOrigen(a) {
     if (!a) return "";
-    if (a.origen === "regla fija") return "Detectada por una regla fija sobre el valor del sensor.";
-    return "Identificado por el " + (a.origen_texto || "modelo") + ".";
+    if (a.origen === "regla fija") return "Regla fija sobre sensor";
+    return "Modelo: " + (a.origen_texto || "diagnóstico");
   }
+  const BADGE_NIVEL = { alarma: "ALARMA ACTIVA", aviso: "ANOMALÍA AE", normal: "OPERACIÓN NORMAL" };
   function pintarBanner(d) {
     const p = d.panel, b = $("banner");
-    b.className = "banner " + (p.color || "gris");
+    const col = p.color || "gris";
+    b.className = "banner " + col;
+    $("banner-badge").textContent = BADGE_NIVEL[p.nivel] || (col === "rojo" ? "ALARMA ACTIVA" : col === "naranja" ? "ATENCIÓN" : col === "verde" ? "OPERACIÓN NORMAL" : "PLANTA");
     $("banner-titulo").textContent = p.titulo;
     const alarma = p.nivel === "alarma" ? d.alarmas_activas[0] : null;
     $("banner-accion").textContent = p.accion || (p.nivel === "normal" ? "Todas las variables dentro de su banda normal y sin anomalías." : "");
-    $("banner-origen").textContent = alarma ? textoOrigen(alarma)
-      : p.nivel === "normal" ? "Diagnóstico y vigilancia sin hallazgos." : p.nivel === "aviso" ? "Detectado por el autoencoder (vigilancia)." : "";
-    $("banner-desde").textContent = p.desde ? `Activa desde ${fHora(p.desde)} (${fFecha(p.desde)}), hace ${duracion(minutosEntre(p.desde, d.ts))}` : "";
+    const orig = alarma ? textoOrigen(alarma)
+      : p.nivel === "normal" ? "Diagnóstico y vigilancia sin hallazgos" : p.nivel === "aviso" ? "Detectado por el autoencoder (vigilancia)" : "";
+    $("banner-origen").textContent = orig;
+    const sep = b.querySelector(".banner-sep");
+    if (sep) sep.hidden = !orig;
+    $("banner-desde").textContent = p.desde ? `Desde ${fHora(p.desde)} (${fFecha(p.desde)}) · ${duracion(minutosEntre(p.desde, d.ts))}` : "";
     $("banner-ver").hidden = p.nivel !== "alarma";
   }
 
@@ -294,7 +329,13 @@
         (a.origen === "regla fija" ? "Regla fija." : `Identificado por el ${a.origen_texto}.`)));
   }
   function pintarAlarmasCard(c, lista, ts) {
-    vaciar(c, lista.length ? lista.slice(0, 4).map((a) => itemAlarma(a, ts)) : [el("p", { clase: "vacio" }, "Sin alarmas activas.")]);
+    if (!lista.length) { vaciar(c, el("p", { clase: "vacio" }, "Sin alarmas activas.")); return; }
+    const items = lista.slice(0, 4).map((a) => itemAlarma(a, ts));
+    if (lista.length > 4) {
+      items.push(el("button", { clase: "btn btn-chico", onclick: () => mostrar("alarmas", true) },
+        `Ver las ${lista.length} alarmas activas (+${lista.length - 4} más)`));
+    }
+    vaciar(c, items);
   }
   function actualizarContador(k) { const c = $("cont-alarmas"); c.textContent = k; c.hidden = !k; }
 

@@ -7,7 +7,7 @@
 <link rel="icon" href="/img/logo-qla.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Archivo+Narrow:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Archivo+Narrow:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -24,7 +24,7 @@
   <section class="login-form">
     <form id="form-login" novalidate>
       <h2>Ingresar</h2>
-      <div id="msg-login" class="mensaje info" hidden></div>
+      <div id="msg-login" class="mensaje info" role="status" aria-live="polite" hidden></div>
       <div class="campo">
         <label for="email">Correo</label>
         <input id="email" type="email" autocomplete="username" required>
@@ -40,7 +40,7 @@
     <form id="form-cambio" novalidate hidden>
       <h2>Cree su contraseña</h2>
       <p class="ayuda">Es su primer ingreso o le asignaron una contraseña temporal. Elija una nueva para continuar: entre 8 y 72 caracteres, con letras y números.</p>
-      <div id="msg-cambio" class="mensaje error" hidden></div>
+      <div id="msg-cambio" class="mensaje error" role="alert" aria-live="assertive" hidden></div>
       <div class="campo">
         <label for="clave-nueva">Contraseña nueva</label>
         <input id="clave-nueva" type="password" autocomplete="new-password" minlength="8" maxlength="72" required>
