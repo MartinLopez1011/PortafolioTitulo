@@ -25,13 +25,17 @@ def _sin_demo():
 
 @router.get("", summary="Estado del simulador")
 def estado(u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_simulacion_estado_demo()
     return simulador.estado()
 
 
 @router.get("/opciones", summary="Velocidades, modos, fallas y fechas disponibles")
 async def opciones(u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_simulacion_opciones_demo()
     try:
         # la primera vez carga el dataset del año (unos segundos)
         return await run_in_threadpool(simulador.opciones)
@@ -41,7 +45,9 @@ async def opciones(u: dict = Depends(lector)):
 
 @router.post("", summary="Controlar el simulador")
 async def controlar(c: Control, u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.controlar_simulacion_demo(c.accion, c.valor)
     try:
         r = await run_in_threadpool(simulador.controlar, c.accion, c.valor)
     except SimuladorNoDisponible as e:

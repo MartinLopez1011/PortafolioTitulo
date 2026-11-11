@@ -82,7 +82,9 @@ def _num(v):
 # =====================================================================
 @router.get("/proceso", summary="Pantalla Proceso: estado general, medidores, diagnóstico, alarmas e indicadores")
 def proceso(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_proceso_demo()
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
@@ -272,7 +274,9 @@ def _ultima_intervencion(cur, eq, fuente, ts) -> dict:
 
 @router.get("/prediccion", summary="Pantalla Predicción: semáforo de riesgo por falla y horizonte")
 def prediccion(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_prediccion_pantalla_demo()
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
@@ -294,7 +298,9 @@ def prediccion(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simula
 def prediccion_evolucion(horizonte: Literal["24h", "5d", "15d"] = "5d", dias: int = Query(7, ge=1, le=30),
                          equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                          u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_evolucion_demo(horizonte, dias)
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
@@ -355,7 +361,9 @@ def _alarmas(cur, eq, fuente, activas: bool, limite: int, ts) -> list:
 @router.get("/alarmas/pantalla", summary="Pantalla Alarmas: activas e historial (solo consulta)")
 def alarmas_pantalla(limite: int = Query(200, ge=1, le=500), equipo: str = config.EQUIPO_POR_DEFECTO,
                      fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_alarmas_pantalla_demo()
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
@@ -372,7 +380,9 @@ def alarmas_pantalla(limite: int = Query(200, ge=1, le=500), equipo: str = confi
 @router.get("/salud-equipo", summary="Pantalla Salud: error medio diario del autoencoder")
 def salud_equipo(dias: int = Query(30, ge=1, le=120), equipo: str = config.EQUIPO_POR_DEFECTO,
                  fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_salud_demo(dias)
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
@@ -409,7 +419,9 @@ def salud_equipo(dias: int = Query(30, ge=1, le=120), equipo: str = config.EQUIP
 @router.get("/mantenimiento/pantalla", summary="Pantalla Mantenimiento: estado por equipo y bitácora (solo lectura)")
 def mantenimiento_pantalla(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                            u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_mantenimiento_demo()
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)

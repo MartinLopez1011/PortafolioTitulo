@@ -108,19 +108,35 @@ def lecturas_serie(
         u: dict = Depends(lector)):
     from .. import db
     if db.MODO_DEMO:
+        import math as _m
         from .. import demo_store
         lista = [t.strip() for t in tags.split(",") if t.strip()]
-        ahora = dt.datetime.now(dt.timezone.utc)
+        ahora = hasta or demo_store._avanzar_reloj_demo()
+        esc = demo_store.SIM_ESTADO.get("escenario", "")
         series = []
-        for t in lista:
+        for idx, t in enumerate(lista):
             base = float(demo_store.VALORES_INICIALES.get(t, 25.0))
             pts = []
-            for h in range(24, 0, -2):
-                pt_t = ahora - dt.timedelta(hours=h)
-                pts.append({"t": pt_t, "prom": round(base, 2), "min": round(base * 0.98, 2), "max": round(base * 1.02, 2)})
+            for p_idx in range(36, -1, -1):
+                pt_t = ahora - dt.timedelta(minutes=p_idx * 20)
+                prog = (36 - p_idx) / 36.0
+                onda = _m.sin(p_idx * 0.45 + idx) * (base * 0.025 if base else 0.05)
+                deriva = 0.0
+                if esc == "filtro" and t == "PRE_dif_filtro_bar":
+                    deriva = 1.05 * (prog ** 1.8)
+                elif esc == "filtro" and t == "CAU_bomba_lpm":
+                    deriva = -48.0 * (prog ** 1.6)
+                elif esc == "caldera" and t == "TEM_son_betum_in":
+                    deriva = -18.0 * prog
+                elif esc == "caldera" and t in ("AMP_vfd_motor_molino", "TOR_vfd_motor_molino"):
+                    deriva = 22.0 * (prog ** 1.4)
+                elif esc == "rodamientos" and t == "VIB_vel_motor_molino":
+                    deriva = 2.2 * (prog ** 1.5)
+                val = round(base + onda + deriva, 2)
+                pts.append({"t": pt_t, "prom": val, "min": round(val * 0.98, 2), "max": round(val * 1.02, 2)})
             unidad_tag = next((s["unidad"] for s in demo_store.SENSORES if s["tag"] == t), "")
             series.append({"tag": t, "unidad": unidad_tag, "puntos": pts})
-        return {"desde": ahora - dt.timedelta(hours=24), "hasta": ahora, "paso": paso, "series": series}
+        return {"desde": ahora - dt.timedelta(hours=12), "hasta": ahora, "paso": paso, "series": series}
 
     lista = [t.strip() for t in tags.split(",") if t.strip()]
     if not lista or len(lista) > 12:
