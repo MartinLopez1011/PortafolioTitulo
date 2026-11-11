@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/css/app.css">
+<link rel="stylesheet" href="/css/app.css?v=20261111">
 <script>
   // Sin sesión no se muestra el panel
   try { if (!sessionStorage.getItem("qla_token")) location.replace("/login.html"); } catch (e) { location.replace("/login.html"); }
@@ -318,10 +318,61 @@
 <section class="vista" id="vista-mantenimiento" role="tabpanel" aria-labelledby="tab-btn-mantenimiento" hidden>
   <div class="kpis" id="kpis-mant"></div>
   <div class="tarjeta">
-    <h3>Estado por equipo</h3>
+    <div class="tarjeta-cab">
+      <h3>Estado por equipo</h3>
+      <button class="btn btn-primario" id="btn-nuevo-mant">Registrar mantenimiento</button>
+    </div>
+    <div class="mensaje" id="msg-mantenimiento" role="status" aria-live="polite" hidden></div>
+    <form class="form-mantenimiento" id="form-mantenimiento" hidden novalidate>
+      <label>Equipo / punto intervenido
+        <select id="m-equipo" required>
+          <option value="filtro">F-101 filtro de línea</option>
+          <option value="radar">TK-101 radar de nivel</option>
+          <option value="caldera">TK-101 caldera / calefactor de betún</option>
+          <option value="intercambiador">E-301 intercambiador de calor</option>
+          <option value="caudalimetro">FT-201 caudalímetro solución</option>
+          <option value="pt100">TT-101 Pt100 betún</option>
+          <option value="rodamientos">MC-01 rodamientos del molino</option>
+          <option value="planta_completa">Planta completa (mantención general)</option>
+        </select>
+      </label>
+      <label>Tipo de intervención
+        <select id="m-tipo" required>
+          <option value="preventivo">Preventiva</option>
+          <option value="correctivo">Correctiva</option>
+          <option value="predictivo">Predictiva</option>
+        </select>
+      </label>
+      <label>Fecha y hora de inicio
+        <input id="m-inicio" type="datetime-local" required>
+      </label>
+      <label>Fecha y hora de término (opcional)
+        <input id="m-fin" type="datetime-local">
+      </label>
+      <div class="campo-ancho" id="m-fallas-grupo" hidden>
+        <span class="etiqueta-campo">Puntos de mantención atendidos en la intervención general</span>
+        <div class="checks-fallas" id="m-fallas-checks">
+          <label class="check"><input type="checkbox" value="Filtro_Obstruido" checked> F-101 Filtro</label>
+          <label class="check"><input type="checkbox" value="Advertencia_Radar_Sucio_Betun" checked> TK-101 Radar</label>
+          <label class="check"><input type="checkbox" value="Sobrecarga_Motor_Por_Asfalto_Frio" checked> TK-101 Caldera</label>
+          <label class="check"><input type="checkbox" value="Ensuciamiento_Intercambiador" checked> E-301 Intercambiador</label>
+          <label class="check"><input type="checkbox" value="Cortocircuito_Transmisor_Caudal_Sol" checked> FT-201 Caudalímetro</label>
+          <label class="check"><input type="checkbox" value="Falla_Electrica_PT100_Betun" checked> TT-101 Pt100</label>
+          <label class="check"><input type="checkbox" value="Desgaste_Rodamientos_Molino" checked> MC-01 Rodamientos</label>
+        </div>
+      </div>
+      <label class="campo-ancho">Descripción del trabajo realizado
+        <input id="m-descripcion" type="text" required minlength="4" maxlength="2000" placeholder="Ej.: Limpieza de malla del filtro F-101 y drenaje de sedimentos">
+      </label>
+      <div class="acciones">
+        <button class="btn btn-primario" type="submit">Guardar mantenimiento</button>
+        <button class="btn btn-oscuro" type="button" id="m-cancelar">Cancelar</button>
+      </div>
+      <p class="nota">La fecha se prellena con la hora actual de la planta (simulada o real). Al registrar el mantenimiento se actualiza el desgaste desde la última intervención y la bitácora del modelo predictivo.</p>
+    </form>
     <div class="tabla-scroll">
       <table class="tabla">
-        <thead><tr><th>Equipo</th><th>Correctivas</th><th>Preventivas</th><th>MTBF</th><th>Última intervención</th><th>Hace</th><th>Riesgo a 15 días</th></tr></thead>
+        <thead><tr><th>Equipo</th><th>Correctivas</th><th>Preventivas</th><th>MTBF</th><th>Última intervención</th><th>Hace</th><th>Riesgo a 15 días</th><th>Acción</th></tr></thead>
         <tbody id="tabla-equipos"></tbody>
       </table>
     </div>
@@ -330,12 +381,12 @@
     <h3>Bitácora de mantenimiento</h3>
     <div class="tabla-scroll">
       <table class="tabla">
-        <thead><tr><th>Fecha</th><th>Equipo</th><th>Tipo</th><th>Descripción</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Equipo</th><th>Tipo</th><th>Descripción</th><th>Registrado por</th></tr></thead>
         <tbody id="tabla-bitacora"></tbody>
       </table>
     </div>
     <button class="btn btn-oscuro" id="btn-bitacora" hidden>Mostrar toda la bitácora</button>
-    <p class="nota">La bitácora la mantiene la planta fuera del dashboard; el modelo de predicción la lee para calcular el desgaste desde la última intervención.</p>
+    <p class="nota" id="nota-bitacora">La bitácora combina el historial de planta y las intervenciones registradas en el dashboard; el modelo de predicción la lee para calcular el desgaste desde la última intervención.</p>
   </div>
 </section>
 
@@ -399,7 +450,7 @@
 </main>
 
 <script src="/js/vendor/echarts.min.js"></script>
-<script src="/js/api.js"></script>
-<script src="/js/app.js"></script>
+<script src="/js/api.js?v=20261111"></script>
+<script src="/js/app.js?v=20261111"></script>
 </body>
 </html>

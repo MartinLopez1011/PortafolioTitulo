@@ -28,21 +28,23 @@ HORIZONTES = ("24h", "5d", "15d")
 
 # Punto de mantención de cada modo de falla. 'clave' es el nombre que usa el modelo predictivo en la
 # bitácora (estado_equipos.json) y 'equipo' el texto que se muestra. Las intervenciones de cada uno se
-# obtienen de mantenimiento_fallas (correctivas y preventivas que atendieron esa falla).
+# obtienen de mantenimiento_fallas (correctivas, preventivas y predictivas que atendieron esa falla).
 EQUIPOS = [
-    {"clave": "filtro", "equipo": "F-101 filtro de línea", "falla": "Filtro_Obstruido"},
-    {"clave": "radar", "equipo": "TK-101 radar de nivel", "falla": "Advertencia_Radar_Sucio_Betun"},
-    {"clave": "caldera", "equipo": "TK-101 caldera / calefactor de betún", "falla": "Sobrecarga_Motor_Por_Asfalto_Frio"},
-    {"clave": "intercambiador", "equipo": "E-301 intercambiador de calor", "falla": "Ensuciamiento_Intercambiador"},
-    {"clave": "caudalimetro", "equipo": "FT-201 caudalímetro solución", "falla": "Cortocircuito_Transmisor_Caudal_Sol"},
-    {"clave": "pt100", "equipo": "TT-101 Pt100 betún", "falla": "Falla_Electrica_PT100_Betun"},
-    {"clave": "rodamientos", "equipo": "MC-01 rodamientos del molino", "falla": "Desgaste_Rodamientos_Molino"},
+    {"clave": "filtro", "equipo": "F-101 filtro de línea", "componente": "F-101", "falla": "Filtro_Obstruido"},
+    {"clave": "radar", "equipo": "TK-101 radar de nivel", "componente": "TK-101", "falla": "Advertencia_Radar_Sucio_Betun"},
+    {"clave": "caldera", "equipo": "TK-101 caldera / calefactor de betún", "componente": "TK-101", "falla": "Sobrecarga_Motor_Por_Asfalto_Frio"},
+    {"clave": "intercambiador", "equipo": "E-301 intercambiador de calor", "componente": "E-301", "falla": "Ensuciamiento_Intercambiador"},
+    {"clave": "caudalimetro", "equipo": "FT-201 caudalímetro solución", "componente": "FT-201", "falla": "Cortocircuito_Transmisor_Caudal_Sol"},
+    {"clave": "pt100", "equipo": "TT-101 Pt100 betún", "componente": "TT-101", "falla": "Falla_Electrica_PT100_Betun"},
+    {"clave": "rodamientos", "equipo": "MC-01 rodamientos del molino", "componente": "MC-01", "falla": "Desgaste_Rodamientos_Molino"},
 ]
 SQL_INTERVENCIONES = """
                FROM mantpred.mantenimientos m
                JOIN mantpred.mantenimiento_fallas mf ON mf.mantenimiento_id = m.id
                JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
-               WHERE m.equipo_id = %s AND m.fuente = %s AND m.fecha_inicio <= %s AND tf.codigo = %s"""
+               WHERE m.equipo_id = %s AND m.fuente = %s
+                 AND (m.fecha_inicio <= %s OR m.origen_registro = 'dashboard')
+                 AND tf.codigo = %s"""
 
 # Indicadores del día (mismos supuestos que el dashboard simulado de Franco)
 CAUDAL_20MA = {"betun": 200.0, "solucion": 120.0}     # L/min a 20 mA de cada Coriolis
@@ -288,7 +290,7 @@ def prediccion(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simula
     for f in filas:
         ult = ultimas.get(f["falla"])
         f["ultima_intervencion"] = ult
-        f["dias_desde_intervencion"] = round((ts - ult).total_seconds() / 86400, 1) if ult else None
+        f["dias_desde_intervencion"] = max(0.0, round((ts - ult).total_seconds() / 86400, 1)) if ult else None
         f["frecuente"] = f["falla"] in FALLAS_FRECUENTES
         f["alto_en"] = [hz for hz in HORIZONTES if f["horizontes"].get(hz, {}).get("alerta")]
     return {"ts": ts, "emitida": filas[0]["emitida"] if filas else None, "fallas": filas}
@@ -416,7 +418,7 @@ def salud_equipo(dias: int = Query(30, ge=1, le=120), equipo: str = config.EQUIP
 # =====================================================================
 # MANTENIMIENTO (HU-13, 16)
 # =====================================================================
-@router.get("/mantenimiento/pantalla", summary="Pantalla Mantenimiento: estado por equipo y bitácora (solo lectura)")
+@router.get("/mantenimiento/pantalla", summary="Pantalla Mantenimiento: estado por equipo y bitácora")
 def mantenimiento_pantalla(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                            u: dict = Depends(lector)):
     if config.MODO_DEMO:
@@ -436,28 +438,38 @@ def mantenimiento_pantalla(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuen
             difs = [(b - a).total_seconds() / 86400 for a, b in zip(corr, corr[1:])]
             ultima = regs[-1]["fecha_inicio"] if regs else None
             r15 = riesgo15.get(e["falla"], {})
-            filas.append({"equipo": e["equipo"], "falla": e["falla"], "correctivas": len(corr),
-                          "preventivas": sum(1 for r in regs if r["tipo"] == "preventivo"),
+            filas.append({"clave": e["clave"], "equipo": e["equipo"], "componente": e["componente"],
+                          "falla": e["falla"], "correctivas": len(corr),
+                          "preventivas": sum(1 for r in regs if r["tipo"] in ("preventivo", "predictivo")),
                           "mtbf_dias": round(sum(difs) / len(difs), 1) if difs else None,
                           "ultima_intervencion": ultima,
-                          "dias_desde": round((ts - ultima).total_seconds() / 86400, 1) if ultima else None,
+                          "dias_desde": max(0.0, round((ts - ultima).total_seconds() / 86400, 1)) if ultima else None,
                           "riesgo_15d": r15.get("alerta"), "probabilidad_15d": r15.get("probabilidad")})
         cur.execute(
-            """SELECT count(*) AS total, count(*) FILTER (WHERE tipo = 'preventivo') AS preventivas
-               FROM mantpred.mantenimientos WHERE equipo_id = %s AND fuente = %s AND fecha_inicio <= %s""",
+            """SELECT count(*) AS total,
+                      count(*) FILTER (WHERE tipo IN ('preventivo', 'predictivo')) AS preventivas
+               FROM mantpred.mantenimientos
+               WHERE equipo_id = %s AND fuente = %s
+                 AND (fecha_inicio <= %s OR origen_registro = 'dashboard')""",
             (eq, fuente, ts))
         tot = cur.fetchone()
         cur.execute(
-            """SELECT m.fecha_inicio, coalesce(c.codigo || ' ' || lower(c.nombre), 'Planta completa') AS componente,
-                      m.tipo, m.descripcion,
+            """SELECT m.id, m.fecha_inicio, m.fecha_fin,
+                      coalesce(c.codigo || ' ' || lower(c.nombre), 'Planta completa') AS componente,
+                      m.tipo, m.descripcion, m.origen_registro,
+                      coalesce(us.nombre, us.email) AS registrado_por,
                       (SELECT array_agg(tf.titulo ORDER BY tf.id) FROM mantpred.mantenimiento_fallas mf
                        JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
                        WHERE mf.mantenimiento_id = m.id) AS fallas_atendidas
-               FROM mantpred.mantenimientos m LEFT JOIN mantpred.componentes c ON c.id = m.componente_id
-               WHERE m.equipo_id = %s AND m.fuente = %s AND m.fecha_inicio <= %s
-               ORDER BY m.fecha_inicio DESC LIMIT 60""", (eq, fuente, ts))
+               FROM mantpred.mantenimientos m
+               LEFT JOIN mantpred.componentes c ON c.id = m.componente_id
+               LEFT JOIN mantpred.usuarios us ON us.id = m.registrado_por
+               WHERE m.equipo_id = %s AND m.fuente = %s
+                 AND (m.fecha_inicio <= %s OR m.origen_registro = 'dashboard')
+               ORDER BY m.fecha_inicio DESC, m.id DESC LIMIT 60""", (eq, fuente, ts))
         bitacora = cur.fetchall()
     return {"ts": ts, "equipos": filas,
             "pct_planificado": round(100 * tot["preventivas"] / tot["total"], 1) if tot["total"] else None,
             "total_intervenciones": tot["total"], "bitacora": bitacora,
-            "nota": "La bitácora la mantiene la planta fuera del dashboard; aquí es solo de lectura."}
+            "nota": "La bitácora combina el historial de planta y las intervenciones registradas en el dashboard."}
+

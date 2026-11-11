@@ -68,6 +68,11 @@
   function fFecha(iso) { if (!iso) return "—"; const p = partes(iso, { day: "2-digit", month: "2-digit", year: "numeric" }); return `${p.day}-${p.month}-${p.year}`; }
   function fHora(iso) { if (!iso) return "—"; const p = partes(iso, { hour: "2-digit", minute: "2-digit" }); return `${p.hour}:${p.minute}`; }
   function fFechaHora(iso) { return iso ? `${fFecha(iso)} ${fHora(iso)}` : "—"; }
+  function fInputFechaHora(iso) {
+    if (!iso) return "";
+    const p = partes(iso, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+  }
   function fDia(dia) { if (!dia) return "—"; const [a, m, d] = String(dia).slice(0, 10).split("-"); return `${d}-${m}-${a}`; }
   function n(v, dec = 1) {
     if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
@@ -506,14 +511,84 @@
   }
 
   // ------------------------------------------------------------------ MANTENIMIENTO
-  let bitacoraCompleta = false;
+  let bitacoraCompleta = false, ultimoTsMant = null;
+  function msgMantenimiento(texto, tipo) {
+    const m = $("msg-mantenimiento");
+    if (!m) return;
+    m.className = "mensaje " + (tipo || "info");
+    m.textContent = texto || "";
+    m.hidden = !texto;
+  }
+  function actualizarFallasMantenimiento() {
+    const fg = $("m-fallas-grupo");
+    if (fg) fg.hidden = $("m-equipo").value !== "planta_completa";
+  }
+  function abrirFormMantenimiento(claveEquipo = "filtro") {
+    msgMantenimiento("", "");
+    const form = $("form-mantenimiento");
+    form.hidden = false;
+    $("m-equipo").value = claveEquipo || "filtro";
+    actualizarFallasMantenimiento();
+    const tsRef = ultimoTsMant || sim?.tiempo || new Date().toISOString();
+    if (!$("m-inicio").value) $("m-inicio").value = fInputFechaHora(tsRef);
+    $("m-fin").value = "";
+    $("m-descripcion").focus();
+    form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  $("btn-nuevo-mant")?.addEventListener("click", () => abrirFormMantenimiento($("m-equipo")?.value || "filtro"));
+  $("m-cancelar")?.addEventListener("click", () => { $("form-mantenimiento").hidden = true; });
+  $("m-equipo")?.addEventListener("change", actualizarFallasMantenimiento);
+  $("form-mantenimiento")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const clave_equipo = $("m-equipo").value;
+    const tipo = $("m-tipo").value;
+    const fecha_inicio = $("m-inicio").value;
+    const fecha_fin = $("m-fin").value || null;
+    const descripcion = $("m-descripcion").value.trim();
+    if (!fecha_inicio || !descripcion) {
+      msgMantenimiento("Complete la fecha de inicio y la descripción del trabajo realizado.", "error");
+      return;
+    }
+    if (fecha_fin && new Date(fecha_fin) < new Date(fecha_inicio)) {
+      msgMantenimiento("La fecha de término no puede ser anterior a la fecha de inicio.", "error");
+      return;
+    }
+    const fallas = clave_equipo === "planta_completa"
+      ? Array.from(document.querySelectorAll("#m-fallas-grupo input[type='checkbox']:checked")).map((c) => c.value)
+      : [];
+    try {
+      const btnSubmit = $("form-mantenimiento").querySelector("button[type='submit']");
+      if (btnSubmit) btnSubmit.disabled = true;
+      await api("/mantenimientos", {
+        metodo: "POST",
+        cuerpo: { clave_equipo, tipo, fecha_inicio, fecha_fin, fallas, descripcion, fuente: "simulado" },
+      });
+      $("form-mantenimiento").reset();
+      $("form-mantenimiento").hidden = true;
+      actualizarFallasMantenimiento();
+      msgMantenimiento("Mantenimiento registrado en la bitácora y contadores actualizados.", "ok");
+      await cargarMantenimiento();
+    } catch (e) {
+      msgMantenimiento(e.message, "error");
+    } finally {
+      const btnSubmit = $("form-mantenimiento")?.querySelector("button[type='submit']");
+      if (btnSubmit) btnSubmit.disabled = false;
+    }
+  });
   $("btn-bitacora").addEventListener("click", () => { bitacoraCompleta = true; cargarMantenimiento().catch(() => {}); });
+  function etiquetaTipoMant(tipo) {
+    if (tipo === "preventivo") return el("span", { clase: "etiqueta preventiva" }, "Preventiva");
+    if (tipo === "predictivo") return el("span", { clase: "etiqueta predictiva" }, "Predictiva");
+    return el("span", { clase: "etiqueta correctiva" }, "Correctiva");
+  }
   async function cargarMantenimiento() {
     const d = await api("/mantenimiento/pantalla");
+    if (d.ts) ultimoTsMant = d.ts;
+    if (d.nota && $("nota-bitacora")) $("nota-bitacora").textContent = d.nota;
     const kpi = (et, num, det) => el("div", { clase: "kpi" }, el("div", { clase: "et" }, et), el("div", { clase: "num" }, num), el("div", { clase: "det" }, det));
     const filtro = d.equipos.find((e) => e.falla === "Filtro_Obstruido") || {};
     vaciar($("kpis-mant"),
-      kpi("Mantenimiento planificado", d.pct_planificado === null ? "—" : `${n(d.pct_planificado, 0)} %`, "Preventivas sobre el total"),
+      kpi("Mantenimiento planificado", d.pct_planificado === null ? "—" : `${n(d.pct_planificado, 0)} %`, "Preventivas y predictivas sobre el total"),
       kpi("Intervenciones", String(d.total_intervenciones || 0), "Registradas hasta la fecha simulada"),
       kpi("MTBF del filtro", filtro.mtbf_dias ? `${n(filtro.mtbf_dias, 0)} días` : "—", "Entre correctivas"));
     vaciar($("tabla-equipos"), d.equipos.map((e) => el("tr", {},
@@ -521,14 +596,18 @@
       el("td", {}, e.mtbf_dias ? `${n(e.mtbf_dias, 0)} días` : "—"), el("td", {}, fFechaHora(e.ultima_intervencion)),
       el("td", {}, e.dias_desde === null ? "—" : `${n(e.dias_desde, 1)} días`),
       el("td", {}, e.riesgo_15d === null || e.riesgo_15d === undefined ? el("span", { clase: "riesgo sd" }, "sin predicción")
-        : e.riesgo_15d ? el("span", { clase: "riesgo r5d" }, "Riesgo en 15 días") : el("span", { clase: "riesgo no" }, "Sin riesgo")))));
+        : e.riesgo_15d ? el("span", { clase: "riesgo r5d" }, "Riesgo en 15 días") : el("span", { clase: "riesgo no" }, "Sin riesgo")),
+      el("td", {}, el("button", { clase: "btn btn-chico", onclick: () => abrirFormMantenimiento(e.clave || "filtro") }, "Registrar")))));
     const tb = $("tabla-bitacora");
-    if (!d.bitacora.length) { filaVacia(tb, 4, "Sin registros hasta la fecha simulada."); return; }
+    if (!d.bitacora.length) { filaVacia(tb, 5, "Sin registros hasta la fecha simulada."); return; }
     const todas = bitacoraCompleta || d.bitacora.length <= 15;
     $("btn-bitacora").hidden = todas;
-    vaciar(tb, (todas ? d.bitacora : d.bitacora.slice(0, 15)).map((b) => el("tr", {}, el("td", {}, fFechaHora(b.fecha_inicio)), el("td", {}, b.componente || "—"),
-      el("td", {}, el("span", { clase: "etiqueta " + (b.tipo === "preventivo" ? "preventiva" : "correctiva") }, b.tipo === "preventivo" ? "Preventiva" : "Correctiva")),
-      el("td", {}, b.descripcion || ""))));
+    vaciar(tb, (todas ? d.bitacora : d.bitacora.slice(0, 15)).map((b) => el("tr", {},
+      el("td", {}, fFechaHora(b.fecha_inicio)),
+      el("td", {}, b.componente || "—"),
+      el("td", {}, etiquetaTipoMant(b.tipo)),
+      el("td", {}, b.descripcion || ""),
+      el("td", {}, b.registrado_por || (b.origen_registro === "dashboard" ? "Dashboard" : "Bitácora planta")))));
   }
 
   // ------------------------------------------------------------------ USUARIOS (administrador)
@@ -581,7 +660,7 @@
   let sim = null, opciones = null;
   const textoBarra = {
     proceso: "", prediccion: "", alarmas: "Solo consulta: las alarmas se informan, no se gestionan",
-    salud: "Índice de salud calculado con el error del autoencoder", mantenimiento: "Bitácora de mantenimiento en solo lectura",
+    salud: "Índice de salud calculado con el error del autoencoder", mantenimiento: "Estado por equipo, MTBF y registro de intervenciones",
     simulacion: "", usuarios: "Gestión de usuarios y roles",
   };
   async function controlar(accion, valor) {

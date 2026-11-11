@@ -575,13 +575,49 @@ def obtener_proceso_demo() -> Dict[str, Any]:
     }
 
 
+PUNTOS_MANTENIMIENTO_DEMO: List[Dict[str, Any]] = [
+    {"clave": "filtro", "equipo": "F-101 filtro de línea", "componente": "F-101", "falla": "Filtro_Obstruido",
+     "correctivas_base": 2, "preventivas_base": 5, "mtbf_base": 18.0, "offset_dias": 8.4, "riesgo_15d": True},
+    {"clave": "caldera", "equipo": "TK-101 caldera / calefactor de betún", "componente": "TK-101", "falla": "Sobrecarga_Motor_Por_Asfalto_Frio",
+     "correctivas_base": 1, "preventivas_base": 4, "mtbf_base": 32.0, "offset_dias": 14.2, "riesgo_15d": False},
+    {"clave": "radar", "equipo": "TK-101 radar de nivel", "componente": "TK-101", "falla": "Advertencia_Radar_Sucio_Betun",
+     "correctivas_base": 1, "preventivas_base": 3, "mtbf_base": 28.0, "offset_dias": 21.0, "riesgo_15d": False},
+    {"clave": "intercambiador", "equipo": "E-301 intercambiador de calor", "componente": "E-301", "falla": "Ensuciamiento_Intercambiador",
+     "correctivas_base": 1, "preventivas_base": 3, "mtbf_base": 45.0, "offset_dias": 26.0, "riesgo_15d": False},
+    {"clave": "caudalimetro", "equipo": "FT-201 caudalímetro solución", "componente": "FT-201", "falla": "Cortocircuito_Transmisor_Caudal_Sol",
+     "correctivas_base": 1, "preventivas_base": 3, "mtbf_base": 40.0, "offset_dias": 31.0, "riesgo_15d": False},
+    {"clave": "pt100", "equipo": "TT-101 Pt100 betún", "componente": "TT-101", "falla": "Falla_Electrica_PT100_Betun",
+     "correctivas_base": 1, "preventivas_base": 3, "mtbf_base": 50.0, "offset_dias": 35.0, "riesgo_15d": False},
+    {"clave": "rodamientos", "equipo": "MC-01 rodamientos del molino", "componente": "MC-01", "falla": "Desgaste_Rodamientos_Molino",
+     "correctivas_base": 0, "preventivas_base": 2, "mtbf_base": 60.0, "offset_dias": 42.5, "riesgo_15d": False},
+]
+
+MANTENIMIENTOS_REGISTRADOS_DEMO: List[Dict[str, Any]] = []
+
+
+def _dias_desde_intervencion_demo(ts: datetime.datetime, codigo_falla: str, base_dias: float) -> float:
+    ultima = ts - datetime.timedelta(days=base_dias)
+    for m in MANTENIMIENTOS_REGISTRADOS_DEMO:
+        if codigo_falla in (m.get("fallas") or []):
+            try:
+                f_ini = datetime.datetime.fromisoformat(str(m["fecha_inicio"]).replace("Z", "+00:00"))
+                if f_ini.tzinfo is None:
+                    f_ini = f_ini.replace(tzinfo=datetime.timezone.utc)
+                if f_ini > ultima:
+                    ultima = f_ini
+            except Exception:
+                pass
+    return max(0.0, round((ts - ultima).total_seconds() / 86400.0, 1))
+
+
 def obtener_prediccion_pantalla_demo() -> Dict[str, Any]:
     ts = _avanzar_reloj_demo()
     esc = SIM_ESTADO["escenario"]
     fallas = [
         {
             "falla": "Filtro_Obstruido", "titulo": "Filtro obstruido", "componente": "F-101",
-            "metodo": "LightGBM", "emitida": ts.isoformat(), "dias_desde_intervencion": 8.4, "frecuente": True,
+            "metodo": "LightGBM", "emitida": ts.isoformat(),
+            "dias_desde_intervencion": _dias_desde_intervencion_demo(ts, "Filtro_Obstruido", 8.4), "frecuente": True,
             "accion": "Limpiar canastillo del filtro F-101.",
             "alto_en": ["24h", "5d", "15d"] if esc == "filtro" else ["15d"],
             "horizontes": {
@@ -592,7 +628,8 @@ def obtener_prediccion_pantalla_demo() -> Dict[str, Any]:
         },
         {
             "falla": "Sobrecarga_Motor_Por_Asfalto_Frio", "titulo": "Sobrecarga por asfalto frío", "componente": "TK-101",
-            "metodo": "LightGBM", "emitida": ts.isoformat(), "dias_desde_intervencion": 14.2, "frecuente": True,
+            "metodo": "LightGBM", "emitida": ts.isoformat(),
+            "dias_desde_intervencion": _dias_desde_intervencion_demo(ts, "Sobrecarga_Motor_Por_Asfalto_Frio", 14.2), "frecuente": True,
             "accion": "Verificar quemador de caldera y serpentines de TK-101.",
             "alto_en": ["24h", "5d"] if esc == "caldera" else [],
             "horizontes": {
@@ -603,7 +640,8 @@ def obtener_prediccion_pantalla_demo() -> Dict[str, Any]:
         },
         {
             "falla": "Advertencia_Radar_Sucio_Betun", "titulo": "Radar de betún sucio", "componente": "TK-101",
-            "metodo": "LightGBM", "emitida": ts.isoformat(), "dias_desde_intervencion": 21.0, "frecuente": True,
+            "metodo": "LightGBM", "emitida": ts.isoformat(),
+            "dias_desde_intervencion": _dias_desde_intervencion_demo(ts, "Advertencia_Radar_Sucio_Betun", 21.0), "frecuente": True,
             "accion": "Programar limpieza de antena radar TK-101.",
             "alto_en": ["5d", "15d"] if esc == "radar" else [],
             "horizontes": {
@@ -614,7 +652,8 @@ def obtener_prediccion_pantalla_demo() -> Dict[str, Any]:
         },
         {
             "falla": "Desgaste_Rodamientos_Molino", "titulo": "Desgaste de rodamientos", "componente": "MC-01",
-            "metodo": "Tendencia lineal (7d)", "emitida": ts.isoformat(), "dias_desde_intervencion": 42.5, "frecuente": False,
+            "metodo": "Tendencia lineal (7d)", "emitida": ts.isoformat(),
+            "dias_desde_intervencion": _dias_desde_intervencion_demo(ts, "Desgaste_Rodamientos_Molino", 42.5), "frecuente": False,
             "accion": "Programar cambio preventivo de rodamientos en parada semanal.",
             "alto_en": ["5d"] if esc == "rodamientos" else [],
             "horizontes": {
@@ -704,32 +743,110 @@ def obtener_salud_demo(dias: int = 45) -> Dict[str, Any]:
     }
 
 
+def registrar_mantenimiento_demo(
+    *,
+    componente_nombre: str,
+    codigo_componente: str | None,
+    tipo: str,
+    fecha_inicio: datetime.datetime,
+    fecha_fin: datetime.datetime | None,
+    fallas: List[str],
+    descripcion: str | None,
+    registrado_por: str,
+    fuente: str = "simulado",
+) -> Dict[str, Any]:
+    if fecha_inicio.tzinfo is None:
+        fecha_inicio = fecha_inicio.replace(tzinfo=datetime.timezone.utc)
+    if fecha_fin is not None and fecha_fin.tzinfo is None:
+        fecha_fin = fecha_fin.replace(tzinfo=datetime.timezone.utc)
+    titulos_falla = {f["codigo"]: f["titulo"] for f in TIPOS_FALLA}
+    nuevo_id = 100 + len(MANTENIMIENTOS_REGISTRADOS_DEMO) + 1
+    registro = {
+        "id": nuevo_id,
+        "fecha_inicio": fecha_inicio.isoformat(),
+        "fecha_fin": fecha_fin.isoformat() if fecha_fin else None,
+        "componente": componente_nombre,
+        "codigo_componente": codigo_componente,
+        "tipo": tipo,
+        "descripcion": descripcion or "",
+        "fallas": list(fallas),
+        "fallas_atendidas": [titulos_falla.get(c, c) for c in fallas],
+        "origen_registro": "dashboard",
+        "registrado_por": registrado_por,
+        "fuente": fuente,
+    }
+    MANTENIMIENTOS_REGISTRADOS_DEMO.insert(0, registro)
+    return registro
+
+
 def obtener_mantenimiento_demo() -> Dict[str, Any]:
     ts = _avanzar_reloj_demo()
-    equipos = [
-        {"equipo": "F-101 filtro de línea", "falla": "Filtro_Obstruido", "correctivas": 2, "preventivas": 5,
-         "mtbf_dias": 18.0, "ultima_intervencion": (ts - datetime.timedelta(days=8)).isoformat(), "dias_desde": 8.4, "riesgo_15d": True},
-        {"equipo": "TK-101 caldera / calefactor de betún", "falla": "Sobrecarga_Motor_Por_Asfalto_Frio", "correctivas": 1, "preventivas": 4,
-         "mtbf_dias": 32.0, "ultima_intervencion": (ts - datetime.timedelta(days=14)).isoformat(), "dias_desde": 14.2, "riesgo_15d": False},
-        {"equipo": "TK-101 radar de nivel", "falla": "Advertencia_Radar_Sucio_Betun", "correctivas": 1, "preventivas": 3,
-         "mtbf_dias": 28.0, "ultima_intervencion": (ts - datetime.timedelta(days=21)).isoformat(), "dias_desde": 21.0, "riesgo_15d": False},
-        {"equipo": "MC-01 rodamientos del molino", "falla": "Desgaste_Rodamientos_Molino", "correctivas": 0, "preventivas": 2,
-         "mtbf_dias": 60.0, "ultima_intervencion": (ts - datetime.timedelta(days=42)).isoformat(), "dias_desde": 42.5, "riesgo_15d": False},
+    equipos = []
+    for p in PUNTOS_MANTENIMIENTO_DEMO:
+        corr_extra = sum(
+            1 for m in MANTENIMIENTOS_REGISTRADOS_DEMO
+            if p["falla"] in (m.get("fallas") or []) and m["tipo"] == "correctivo"
+        )
+        prev_extra = sum(
+            1 for m in MANTENIMIENTOS_REGISTRADOS_DEMO
+            if p["falla"] in (m.get("fallas") or []) and m["tipo"] in ("preventivo", "predictivo")
+        )
+        ultima_dt = ts - datetime.timedelta(days=p["offset_dias"])
+        for m in MANTENIMIENTOS_REGISTRADOS_DEMO:
+            if p["falla"] in (m.get("fallas") or []):
+                try:
+                    f_ini = datetime.datetime.fromisoformat(str(m["fecha_inicio"]).replace("Z", "+00:00"))
+                    if f_ini.tzinfo is None:
+                        f_ini = f_ini.replace(tzinfo=datetime.timezone.utc)
+                    if f_ini > ultima_dt:
+                        ultima_dt = f_ini
+                except Exception:
+                    pass
+        dias_desde = max(0.0, round((ts - ultima_dt).total_seconds() / 86400.0, 1))
+        equipos.append({
+            "clave": p["clave"],
+            "equipo": p["equipo"],
+            "componente": p["componente"],
+            "falla": p["falla"],
+            "correctivas": p["correctivas_base"] + corr_extra,
+            "preventivas": p["preventivas_base"] + prev_extra,
+            "mtbf_dias": p["mtbf_base"],
+            "ultima_intervencion": ultima_dt.isoformat(),
+            "dias_desde": dias_desde,
+            "riesgo_15d": False if (corr_extra + prev_extra) > 0 and dias_desde < 2.0 else p["riesgo_15d"],
+        })
+
+    bitacora_base = [
+        {"id": 3, "fecha_inicio": (ts - datetime.timedelta(days=8)).isoformat(), "fecha_fin": None,
+         "componente": "F-101 filtro de línea", "tipo": "preventivo",
+         "descripcion": "Limpieza programada de malla y drenaje de sedimentos asfálticos.",
+         "origen_registro": "bitacora", "registrado_por": None, "fallas_atendidas": ["Filtro obstruido"]},
+        {"id": 2, "fecha_inicio": (ts - datetime.timedelta(days=14)).isoformat(), "fecha_fin": None,
+         "componente": "TK-101 caldera", "tipo": "preventivo",
+         "descripcion": "Ajuste de control térmico y purga de circuito de aceite térmico.",
+         "origen_registro": "bitacora", "registrado_por": None, "fallas_atendidas": ["Sobrecarga del motor por asfalto frío"]},
+        {"id": 1, "fecha_inicio": (ts - datetime.timedelta(days=21)).isoformat(), "fecha_fin": None,
+         "componente": "TK-101 radar", "tipo": "correctivo",
+         "descripcion": "Remoción de costra de betún en cono emisor del radar.",
+         "origen_registro": "bitacora", "registrado_por": None, "fallas_atendidas": ["Radar de betún sucio"]},
     ]
-    bitacora = [
-        {"fecha_inicio": (ts - datetime.timedelta(days=8)).isoformat(), "componente": "F-101 filtro de línea",
-         "tipo": "preventivo", "descripcion": "Limpieza programada de malla y drenaje de sedimentos asfálticos."},
-        {"fecha_inicio": (ts - datetime.timedelta(days=14)).isoformat(), "componente": "TK-101 caldera",
-         "tipo": "preventivo", "descripcion": "Ajuste de control térmico y purga de circuito de aceite térmico."},
-        {"fecha_inicio": (ts - datetime.timedelta(days=21)).isoformat(), "componente": "TK-101 radar",
-         "tipo": "correctivo", "descripcion": "Remoción de costra de betún en cono emisor del radar."},
-    ]
+    bitacora = sorted(
+        list(MANTENIMIENTOS_REGISTRADOS_DEMO) + bitacora_base,
+        key=lambda x: str(x.get("fecha_inicio") or ""),
+        reverse=True,
+    )
+    total_base = 18
+    preventivas_base = 14
+    total_extra = len(MANTENIMIENTOS_REGISTRADOS_DEMO)
+    prev_extra_total = sum(1 for m in MANTENIMIENTOS_REGISTRADOS_DEMO if m["tipo"] in ("preventivo", "predictivo"))
+    total_int = total_base + total_extra
+    pct_plan = round(100.0 * (preventivas_base + prev_extra_total) / total_int, 1) if total_int else None
     return {
         "ts": ts.isoformat(),
         "equipos": equipos,
-        "pct_planificado": 78.0,
-        "total_intervenciones": 18,
+        "pct_planificado": pct_plan,
+        "total_intervenciones": total_int,
         "bitacora": bitacora,
-        "nota": "Bitácora de demostración en memoria.",
+        "nota": "Bitácora de demostración en memoria (incluye intervenciones registradas en esta sesión).",
     }
 
