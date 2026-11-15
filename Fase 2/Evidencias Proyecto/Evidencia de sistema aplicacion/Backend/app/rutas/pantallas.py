@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .. import config
+from ..catalogos import EQUIPOS
 from ..db import cursor
 from ..seguridad import OPERADOR, requiere_nivel
 
@@ -26,33 +27,10 @@ ORDEN_PRIORIDAD = {"alta": 0, "media": 1, "baja": 2}
 FALLAS_FRECUENTES = ("Sobrecarga_Motor_Por_Asfalto_Frio", "Filtro_Obstruido", "Advertencia_Radar_Sucio_Betun")
 HORIZONTES = ("24h", "5d", "15d")
 
-# Punto de mantención de cada modo de falla. 'clave' es el nombre que usa el modelo predictivo en la
-# bitácora (estado_equipos.json) y 'equipo' el texto que se muestra. Las intervenciones de cada uno se
-# obtienen de mantenimiento_fallas (correctivas y preventivas que atendieron esa falla).
-EQUIPOS = [
-    {"clave": "filtro", "equipo": "F-101 filtro de línea", "falla": "Filtro_Obstruido"},
-    {"clave": "radar", "equipo": "TK-101 radar de nivel", "falla": "Advertencia_Radar_Sucio_Betun"},
-    {"clave": "caldera", "equipo": "TK-101 caldera / calefactor de betún", "falla": "Sobrecarga_Motor_Por_Asfalto_Frio"},
-    {"clave": "intercambiador", "equipo": "E-301 intercambiador de calor", "falla": "Ensuciamiento_Intercambiador"},
-    {"clave": "caudalimetro", "equipo": "FT-201 caudalímetro solución", "falla": "Cortocircuito_Transmisor_Caudal_Sol"},
-    {"clave": "pt100", "equipo": "TT-101 Pt100 betún", "falla": "Falla_Electrica_PT100_Betun"},
-    {"clave": "rodamientos", "equipo": "MC-01 rodamientos del molino", "falla": "Desgaste_Rodamientos_Molino"},
-]
-SQL_INTERVENCIONES = """
-               FROM mantpred.mantenimientos m
-               JOIN mantpred.mantenimiento_fallas mf ON mf.mantenimiento_id = m.id
-               JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
-               WHERE m.equipo_id = %s AND m.fuente = %s AND m.fecha_inicio <= %s AND tf.codigo = %s"""
-
 # Indicadores del día (mismos supuestos que el dashboard simulado de Franco)
 CAUDAL_20MA = {"betun": 200.0, "solucion": 120.0}     # L/min a 20 mA de cada Coriolis
 RELACION_OBJETIVO = (60.0, 68.0)
 VOLTAJE_MOTOR_V, FACTOR_POTENCIA = 380.0, 0.85
-
-
-def _sin_demo():
-    if config.MODO_DEMO:
-        raise HTTPException(409, "Esta pantalla necesita la base de datos (no disponible en modo demostración)")
 
 
 def _equipo(cur, codigo: str) -> int:
@@ -82,7 +60,9 @@ def _num(v):
 # =====================================================================
 @router.get("/proceso", summary="Pantalla Proceso: estado general, medidores, diagnóstico, alarmas e indicadores")
 def proceso(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_proceso_demo()
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
@@ -104,7 +84,7 @@ def proceso(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado"
                JOIN mantpred.lecturas l ON l.sensor_id = s.id AND l.fuente = %s AND l.ts = m.ts
                LEFT JOIN mantpred.rangos_operacion r
                       ON r.sensor_id = s.id AND r.estado = %s AND r.tipo_asfalto = %s
-               WHERE s.equipo_id = %s AND s.activo AND s.origen = 'simulado'
+               WHERE s.equipo_id = %s AND s.activo
                ORDER BY c.codigo, s.tag""",
             (fuente, ts, fuente, estado, tipo, eq))
         sensores = cur.fetchall()
@@ -263,16 +243,26 @@ def _prediccion_actual(cur, eq, fuente, ts) -> list:
 
 def _ultima_intervencion(cur, eq, fuente, ts) -> dict:
     """Fecha de la última intervención (correctiva o preventiva) de cada equipo, según la bitácora."""
-    res = {}
-    for e in EQUIPOS:
-        cur.execute("SELECT max(m.fecha_inicio) AS ultima" + SQL_INTERVENCIONES, (eq, fuente, ts, e["falla"]))
-        res[e["falla"]] = cur.fetchone()["ultima"]
-    return res
+    codigos = [e["falla"] for e in EQUIPOS]
+    cur.execute(
+        """SELECT tf.codigo, max(m.fecha_inicio) AS ultima
+           FROM mantpred.mantenimientos m
+           JOIN mantpred.mantenimiento_fallas mf ON mf.mantenimiento_id = m.id
+           JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
+           WHERE m.equipo_id = %s AND m.fuente = %s
+             AND (m.fecha_inicio <= %s OR m.origen_registro = 'dashboard')
+             AND tf.codigo = ANY(%s)
+           GROUP BY tf.codigo""",
+        (eq, fuente, ts, codigos),
+    )
+    return {f["codigo"]: f["ultima"] for f in cur.fetchall()}
 
 
 @router.get("/prediccion", summary="Pantalla Predicción: semáforo de riesgo por falla y horizonte")
 def prediccion(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_prediccion_pantalla_demo()
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
@@ -284,7 +274,7 @@ def prediccion(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simula
     for f in filas:
         ult = ultimas.get(f["falla"])
         f["ultima_intervencion"] = ult
-        f["dias_desde_intervencion"] = round((ts - ult).total_seconds() / 86400, 1) if ult else None
+        f["dias_desde_intervencion"] = max(0.0, round((ts - ult).total_seconds() / 86400, 1)) if ult else None
         f["frecuente"] = f["falla"] in FALLAS_FRECUENTES
         f["alto_en"] = [hz for hz in HORIZONTES if f["horizontes"].get(hz, {}).get("alerta")]
     return {"ts": ts, "emitida": filas[0]["emitida"] if filas else None, "fallas": filas}
@@ -294,7 +284,9 @@ def prediccion(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simula
 def prediccion_evolucion(horizonte: Literal["24h", "5d", "15d"] = "5d", dias: int = Query(7, ge=1, le=30),
                          equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                          u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_evolucion_demo(horizonte, dias)
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
@@ -324,17 +316,19 @@ def prediccion_evolucion(horizonte: Literal["24h", "5d", "15d"] = "5d", dias: in
 # =====================================================================
 def _alarmas(cur, eq, fuente, activas: bool, limite: int, ts) -> list:
     cur.execute(
-        f"""SELECT a.id, a.inicio, a.fin, a.mensaje, a.severidad, a.origen, a.valor, a.detalle,
-                   tf.codigo AS falla, cf.codigo AS componente_falla,
-                   coalesce(tf.accion, r.accion) AS accion, r.codigo AS regla, cr.codigo AS componente_regla
-            FROM mantpred.alarmas a
-            LEFT JOIN mantpred.tipos_falla tf ON tf.id = a.tipo_falla_id
-            LEFT JOIN mantpred.componentes cf ON cf.id = tf.componente_id
-            LEFT JOIN mantpred.reglas_alarma r ON r.id = a.regla_id
-            LEFT JOIN mantpred.sensores sr ON sr.id = r.sensor_id
-            LEFT JOIN mantpred.componentes cr ON cr.id = sr.componente_id
-            WHERE a.equipo_id = %s AND a.fuente = %s AND a.inicio <= %s {"AND a.fin IS NULL" if activas else ""}
-            ORDER BY a.inicio DESC LIMIT %s""", (eq, fuente, ts, limite))
+        """SELECT a.id, a.inicio, a.fin, a.mensaje, a.severidad, a.origen, a.valor, a.detalle,
+                  tf.codigo AS falla, cf.codigo AS componente_falla,
+                  coalesce(tf.accion, r.accion) AS accion, r.codigo AS regla, cr.codigo AS componente_regla
+           FROM mantpred.alarmas a
+           LEFT JOIN mantpred.tipos_falla tf ON tf.id = a.tipo_falla_id
+           LEFT JOIN mantpred.componentes cf ON cf.id = tf.componente_id
+           LEFT JOIN mantpred.reglas_alarma r ON r.id = a.regla_id
+           LEFT JOIN mantpred.sensores sr ON sr.id = r.sensor_id
+           LEFT JOIN mantpred.componentes cr ON cr.id = sr.componente_id
+           WHERE a.equipo_id = %s AND a.fuente = %s AND a.inicio <= %s AND (NOT %s OR a.fin IS NULL)
+           ORDER BY a.inicio DESC LIMIT %s""",
+        (eq, fuente, ts, activas, limite),
+    )
     res = []
     for a in cur.fetchall():
         fin = a["fin"]
@@ -355,7 +349,9 @@ def _alarmas(cur, eq, fuente, activas: bool, limite: int, ts) -> list:
 @router.get("/alarmas/pantalla", summary="Pantalla Alarmas: activas e historial (solo consulta)")
 def alarmas_pantalla(limite: int = Query(200, ge=1, le=500), equipo: str = config.EQUIPO_POR_DEFECTO,
                      fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_alarmas_pantalla_demo()
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
@@ -372,7 +368,9 @@ def alarmas_pantalla(limite: int = Query(200, ge=1, le=500), equipo: str = confi
 @router.get("/salud-equipo", summary="Pantalla Salud: error medio diario del autoencoder")
 def salud_equipo(dias: int = Query(30, ge=1, le=120), equipo: str = config.EQUIPO_POR_DEFECTO,
                  fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_salud_demo(dias)
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
@@ -406,46 +404,71 @@ def salud_equipo(dias: int = Query(30, ge=1, le=120), equipo: str = config.EQUIP
 # =====================================================================
 # MANTENIMIENTO (HU-13, 16)
 # =====================================================================
-@router.get("/mantenimiento/pantalla", summary="Pantalla Mantenimiento: estado por equipo y bitácora (solo lectura)")
+@router.get("/mantenimiento/pantalla", summary="Pantalla Mantenimiento: estado por equipo y bitácora")
 def mantenimiento_pantalla(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                            u: dict = Depends(lector)):
-    _sin_demo()
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_mantenimiento_demo()
     with cursor() as cur:
         eq = _equipo(cur, equipo)
         ahora = _ahora(cur, eq, fuente)
         ts = ahora["ts"] if ahora else dt.datetime.now(dt.timezone.utc)
         riesgo15 = {f["falla"]: f["horizontes"].get("15d", {}) for f in _prediccion_actual(cur, eq, fuente, ts)}
+        codigos = [e["falla"] for e in EQUIPOS]
+        cur.execute(
+            """SELECT tf.codigo AS falla, m.fecha_inicio, m.tipo
+               FROM mantpred.mantenimientos m
+               JOIN mantpred.mantenimiento_fallas mf ON mf.mantenimiento_id = m.id
+               JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
+               WHERE m.equipo_id = %s AND m.fuente = %s
+                 AND (m.fecha_inicio <= %s OR m.origen_registro = 'dashboard')
+                 AND tf.codigo = ANY(%s)
+               ORDER BY tf.codigo, m.fecha_inicio""",
+            (eq, fuente, ts, codigos),
+        )
+        por_falla: dict[str, list] = {}
+        for reg in cur.fetchall():
+            por_falla.setdefault(reg["falla"], []).append(reg)
         filas = []
         for e in EQUIPOS:
-            cur.execute("SELECT m.fecha_inicio, m.tipo" + SQL_INTERVENCIONES + " ORDER BY m.fecha_inicio",
-                        (eq, fuente, ts, e["falla"]))
-            regs = cur.fetchall()
+            regs = por_falla.get(e["falla"], [])
             corr = [r["fecha_inicio"] for r in regs if r["tipo"] == "correctivo"]
             difs = [(b - a).total_seconds() / 86400 for a, b in zip(corr, corr[1:])]
             ultima = regs[-1]["fecha_inicio"] if regs else None
             r15 = riesgo15.get(e["falla"], {})
-            filas.append({"equipo": e["equipo"], "falla": e["falla"], "correctivas": len(corr),
-                          "preventivas": sum(1 for r in regs if r["tipo"] == "preventivo"),
+            filas.append({"clave": e["clave"], "equipo": e["equipo"], "componente": e["componente"],
+                          "falla": e["falla"], "correctivas": len(corr),
+                          "preventivas": sum(1 for r in regs if r["tipo"] in ("preventivo", "predictivo")),
                           "mtbf_dias": round(sum(difs) / len(difs), 1) if difs else None,
                           "ultima_intervencion": ultima,
-                          "dias_desde": round((ts - ultima).total_seconds() / 86400, 1) if ultima else None,
+                          "dias_desde": max(0.0, round((ts - ultima).total_seconds() / 86400, 1)) if ultima else None,
                           "riesgo_15d": r15.get("alerta"), "probabilidad_15d": r15.get("probabilidad")})
         cur.execute(
-            """SELECT count(*) AS total, count(*) FILTER (WHERE tipo = 'preventivo') AS preventivas
-               FROM mantpred.mantenimientos WHERE equipo_id = %s AND fuente = %s AND fecha_inicio <= %s""",
+            """SELECT count(*) AS total,
+                      count(*) FILTER (WHERE tipo IN ('preventivo', 'predictivo')) AS preventivas
+               FROM mantpred.mantenimientos
+               WHERE equipo_id = %s AND fuente = %s
+                 AND (fecha_inicio <= %s OR origen_registro = 'dashboard')""",
             (eq, fuente, ts))
         tot = cur.fetchone()
         cur.execute(
-            """SELECT m.fecha_inicio, coalesce(c.codigo || ' ' || lower(c.nombre), 'Planta completa') AS componente,
-                      m.tipo, m.descripcion,
+            """SELECT m.id, m.fecha_inicio, m.fecha_fin,
+                      coalesce(c.codigo || ' ' || lower(c.nombre), 'Planta completa') AS componente,
+                      m.tipo, m.descripcion, m.origen_registro,
+                      coalesce(us.nombre, us.email) AS registrado_por,
                       (SELECT array_agg(tf.titulo ORDER BY tf.id) FROM mantpred.mantenimiento_fallas mf
                        JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
                        WHERE mf.mantenimiento_id = m.id) AS fallas_atendidas
-               FROM mantpred.mantenimientos m LEFT JOIN mantpred.componentes c ON c.id = m.componente_id
-               WHERE m.equipo_id = %s AND m.fuente = %s AND m.fecha_inicio <= %s
-               ORDER BY m.fecha_inicio DESC LIMIT 60""", (eq, fuente, ts))
+               FROM mantpred.mantenimientos m
+               LEFT JOIN mantpred.componentes c ON c.id = m.componente_id
+               LEFT JOIN mantpred.usuarios us ON us.id = m.registrado_por
+               WHERE m.equipo_id = %s AND m.fuente = %s
+                 AND (m.fecha_inicio <= %s OR m.origen_registro = 'dashboard')
+               ORDER BY m.fecha_inicio DESC, m.id DESC LIMIT 60""", (eq, fuente, ts))
         bitacora = cur.fetchall()
     return {"ts": ts, "equipos": filas,
             "pct_planificado": round(100 * tot["preventivas"] / tot["total"], 1) if tot["total"] else None,
             "total_intervenciones": tot["total"], "bitacora": bitacora,
-            "nota": "La bitácora la mantiene la planta fuera del dashboard; aquí es solo de lectura."}
+            "nota": "La bitácora combina el historial de planta y las intervenciones registradas en el dashboard."}
+

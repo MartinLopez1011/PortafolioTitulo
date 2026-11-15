@@ -7,9 +7,14 @@
 
   function mostrar(caja, texto, tipo) {
     caja.className = "mensaje " + tipo;
+    caja.setAttribute("role", tipo === "error" ? "alert" : "status");
     caja.textContent = texto;
     caja.hidden = false;
   }
+
+  document.querySelectorAll("input").forEach((inp) => {
+    inp.addEventListener("input", () => inp.removeAttribute("aria-invalid"));
+  });
 
   const motivo = new URLSearchParams(location.search).get("motivo");
   if (motivo === "sesion") mostrar(msgLogin, "Su sesión terminó. Ingrese nuevamente.", "info");
@@ -26,9 +31,16 @@
 
   formLogin.addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    const email = document.getElementById("email").value.trim();
-    const clave = document.getElementById("clave").value;
-    if (!email || !clave) { mostrar(msgLogin, "Ingrese su correo y su contraseña.", "error"); return; }
+    const emailEl = document.getElementById("email");
+    const claveEl = document.getElementById("clave");
+    const email = emailEl.value.trim();
+    const clave = claveEl.value;
+    if (!email || !clave) {
+      if (!email) emailEl.setAttribute("aria-invalid", "true");
+      if (!clave) claveEl.setAttribute("aria-invalid", "true");
+      mostrar(msgLogin, "Ingrese su correo y su contraseña.", "error");
+      return;
+    }
     const btn = document.getElementById("btn-login");
     btn.disabled = true; btn.textContent = "Ingresando…";
     try {
@@ -43,6 +55,8 @@
         location.replace("/");
       }
     } catch (e) {
+      emailEl.setAttribute("aria-invalid", "true");
+      claveEl.setAttribute("aria-invalid", "true");
       mostrar(msgLogin, e.message, "error");
     } finally {
       btn.disabled = false; btn.textContent = "Ingresar";
@@ -51,9 +65,15 @@
 
   formCambio.addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    const nueva = document.getElementById("clave-nueva").value;
-    const repetida = document.getElementById("clave-repetida").value;
-    if (nueva !== repetida) { mostrar(msgCambio, "Las contraseñas no coinciden.", "error"); return; }
+    const nuevaEl = document.getElementById("clave-nueva");
+    const repEl = document.getElementById("clave-repetida");
+    const nueva = nuevaEl.value;
+    const repetida = repEl.value;
+    if (nueva !== repetida) {
+      repEl.setAttribute("aria-invalid", "true");
+      mostrar(msgCambio, "Las contraseñas no coinciden.", "error");
+      return;
+    }
     if (!claveIngresada) {
       // Se recargó la página: hay que volver a ingresar para confirmar la clave actual
       Sesion.cerrar();

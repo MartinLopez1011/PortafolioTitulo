@@ -1,30 +1,41 @@
 # Base de datos – Mantenimiento Predictivo QLA
 
 Esquema PostgreSQL del sistema de mantenimiento predictivo del molino coloidal MC-01
-(Química Latinoamericana S.A.). Alojado en **Amazon RDS** (`qla-mantpred`, us-east-1), esquema `mantpred`.
+(Química Latinoamericana S.A.). Alojado en **Amazon RDS** (`qla-mantpred`, us-east-2), esquema `mantpred`.
 
 Responsable: Nicolás (Ingeniería de datos y backend)
 Versión: 4.1 — basada en el esquema original de Franco Carvajal (v1/v2 en Supabase, migrado a RDS en v3)
 
-![Diagrama entidad-relación v4](diagrama/bd_mantpred_v4.png)
+![Diagrama entidad-relación v4.1](diagrama/bd_mantpred_v4_1_compacto.png)
 
-- Diagrama en alta resolución: [`diagrama/bd_mantpred_v4.pdf`](diagrama/bd_mantpred_v4.pdf) · [`.svg`](diagrama/bd_mantpred_v4.svg)
+- Diagrama en alta resolución: [`completo (PDF)`](diagrama/bd_mantpred_v4_1_completo.pdf) · [`completo (SVG)`](diagrama/bd_mantpred_v4_1_completo.svg) · [`compacto (PDF)`](diagrama/bd_mantpred_v4_1_compacto.pdf)
 - Descripción de cada tabla y columna: [`DICCIONARIO_DATOS.md`](DICCIONARIO_DATOS.md)
 
 ## Contenido
 
 | Archivo | Qué es |
 | --- | --- |
+| `bd_mantpred_v4_1_completo.sql` | **Esquema final v4.1 en un solo archivo** (estructura + catálogos + bitácora, sin usuarios). Para crear una base nueva |
 | `bd_mantenimiento_predictivo_v2.sql` | Esquema base (v2): tablas, seguridad (RLS) y datos iniciales |
 | `migracion_v3.sql` | v3: reglas de alarma, condiciones por minuto, columnas de origen/fuente, 2 roles |
 | `migracion_v4.sql` | v4: normalización final (ver abajo). Una sola transacción |
 | `migracion_v4_1.sql` | v4.1: FK compuestas que aseguran que el equipo de un sensor o de una mantención coincida con el de su componente |
 | `ejecutar_sql.py` | Ejecuta un archivo .sql contra RDS usando el archivo de conexión local |
-| `crear_admin.py` | Crea el primer usuario administrador |
+| `crear_admin.py` | Crea o actualiza el usuario administrador real |
 | `cargar_datos.py` | Carga una ventana del dataset simulado MC-01 en `lecturas` y `estados_equipo` |
+| `verificar_bd.py` | Consulta en solo lectura el estado y conteo de filas de las 16 tablas |
 | `requirements.txt` | Dependencias de los scripts |
 
-Para crear la base desde cero: `v2` → `migracion_v3.sql` → `migracion_v4.sql` → `migracion_v4_1.sql`.
+**Base nueva (desde cero):** un solo archivo y luego el administrador:
+
+```
+python ejecutar_sql.py bd_mantpred_v4_1_completo.sql --env "$HOME/qla_rds.env"
+python crear_admin.py --env "$HOME/qla_rds.env"
+```
+
+Equivale a aplicar `v2` → `migracion_v3.sql` → `migracion_v4.sql` → `migracion_v4_1.sql` (verificado: mismas tablas, columnas, restricciones, índices, comentarios, RLS y datos). Falla sin cambiar nada si el esquema `mantpred` ya existe.
+
+**Base existente:** se aplican solo las migraciones que falten, en orden. Las migraciones quedan en el repositorio como historial de cómo evolucionó el esquema.
 
 ## Las 16 tablas, por área
 
@@ -53,7 +64,7 @@ Para crear la base desde cero: `v2` → `migracion_v3.sql` → `migracion_v4.sql
 
 ```
 cd "Base de Datos"
-python ejecutar_sql.py migracion_v4.sql --env "$HOME\qla_rds.env"
+python ejecutar_sql.py migracion_v4.sql --env "$HOME/qla_rds.env"
 ```
 
 El archivo de conexión vive fuera del repositorio. Si algo falla, la transacción se revierte completa.

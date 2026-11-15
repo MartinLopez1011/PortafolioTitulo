@@ -15,12 +15,11 @@ from . import config
 logger = logging.getLogger(__name__)
 
 _pool: ConnectionPool | None = None
-MODO_DEMO: bool = config.MODO_DEMO
 
 
 def abrir() -> None:
     global _pool
-    if MODO_DEMO:
+    if config.MODO_DEMO:
         logger.warning("MODO_DEMO=1: la API usa datos de ejemplo en memoria, sin base de datos.")
         return
     _pool = ConnectionPool(

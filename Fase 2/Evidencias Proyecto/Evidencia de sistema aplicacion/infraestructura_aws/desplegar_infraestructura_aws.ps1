@@ -15,7 +15,7 @@ param(
     [string]$Mode = $(if ($env:DEPLOY_MODE) { $env:DEPLOY_MODE } else { "lab" }),
 
     [Parameter(Mandatory=$false)]
-    [string]$Region = $(if ($env:AWS_REGION) { $env:AWS_REGION } else { "us-east-1" }),
+    [string]$Region = $(if ($env:AWS_REGION) { $env:AWS_REGION } else { "us-east-2" }),
 
     [Parameter(Mandatory=$false)]
     [string]$BucketName = $(if ($env:S3_BUCKET) { $env:S3_BUCKET } else { "backup-planta-asfalto-molino-ml" })

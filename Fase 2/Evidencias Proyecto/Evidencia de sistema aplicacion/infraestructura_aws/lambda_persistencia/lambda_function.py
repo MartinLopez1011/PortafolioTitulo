@@ -9,7 +9,7 @@ Si el backend no responde, la función falla a propósito: el Stream reintenta e
 así no se pierde ningún resultado mientras el servidor esté detenido (hasta MAX_EDAD del mapeo).
 
 Variables de entorno:
-    URL_BACKEND    p. ej. https://xxxx.execute-api.us-east-1.amazonaws.com
+    URL_BACKEND    p. ej. https://xxxx.execute-api.us-east-2.amazonaws.com
     CLAVE_INGESTA  la misma del .env del backend
     FUENTE         simulado (por defecto) o real
 """

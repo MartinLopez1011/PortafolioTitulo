@@ -104,12 +104,14 @@ jobs:
           API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)
           URL="https://$API_ID.execute-api.$AWS_REGION.amazonaws.com"
           for _ in $(seq 1 20); do
-            if curl -fsS "$URL/api/salud"; then
-              echo
+            if SALUD_JSON=$(curl -fsS "$URL/api/salud"); then
+              echo "$SALUD_JSON"
               {
                 echo "### Dashboard y API desplegados en AWS ($AWS_REGION)"
                 echo "- **URL Pública HTTPS:** $URL"
-                echo "- **Login Modo Demo:** \`admin@demo.qla.cl\` / \`ClaveDemo2026\`"
+                if echo "$SALUD_JSON" | grep -q '"modo_demostracion"'; then
+                  echo "- **Login Modo Demo:** \`admin@demo.qla.cl\` / \`ClaveDemo2026\`"
+                fi
               } >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi

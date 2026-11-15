@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import threading
 from typing import Any
 
 ESTADOS = {"produccion": "produccion", "producción": "produccion", "limpieza": "limpieza",
@@ -49,6 +50,7 @@ ANOMALIA_DESCONOCIDA = "Anomalia_Desconocida"
 N_VARIABLES_AE = 31
 
 _cache: dict[str, Any] = {}
+_cache_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------- utilidades
@@ -73,21 +75,25 @@ def _instante(ts) -> dt.datetime:
 
 def _catalogos(cur) -> dict:
     """Ids de sensores, fallas, reglas y equipos. Se leen una vez por proceso."""
-    if not _cache:
-        cur.execute("SELECT id, tag FROM mantpred.sensores WHERE activo")
-        _cache["sensores"] = {_get(r, "tag", 1): _get(r, "id", 0) for r in cur.fetchall()}
-        cur.execute("SELECT id, codigo, prioridad, titulo FROM mantpred.tipos_falla")
-        _cache["fallas"] = {_get(r, "codigo", 1): {"id": _get(r, "id", 0), "prioridad": _get(r, "prioridad", 2),
-                                                    "titulo": _get(r, "titulo", 3)} for r in cur.fetchall()}
-        cur.execute("""SELECT r.id, r.codigo, s.tag, r.comparacion, r.limite, r.tipo_asfalto, r.solo_en_marcha,
-                              r.prioridad, r.mensaje
-                       FROM mantpred.reglas_alarma r JOIN mantpred.sensores s ON s.id = r.sensor_id
-                       WHERE r.activa""")
-        cols = ("id", "codigo", "tag", "comparacion", "limite", "tipo_asfalto", "solo_en_marcha", "prioridad", "mensaje")
-        _cache["reglas"] = [{c: _get(r, c, i) for i, c in enumerate(cols)} for r in cur.fetchall()]
-        cur.execute("SELECT id, codigo FROM mantpred.equipos")
-        _cache["equipos"] = {_get(r, "codigo", 1): _get(r, "id", 0) for r in cur.fetchall()}
-    return _cache
+    with _cache_lock:
+        if not _cache:
+            nuevo: dict[str, Any] = {}
+            cur.execute("SELECT id, tag FROM mantpred.sensores WHERE activo")
+            nuevo["sensores"] = {_get(r, "tag", 1): _get(r, "id", 0) for r in cur.fetchall()}
+            cur.execute("SELECT id, codigo, prioridad, titulo FROM mantpred.tipos_falla")
+            nuevo["fallas"] = {_get(r, "codigo", 1): {"id": _get(r, "id", 0), "prioridad": _get(r, "prioridad", 2),
+                                                        "titulo": _get(r, "titulo", 3)} for r in cur.fetchall()}
+            cur.execute("""SELECT r.id, r.codigo, s.tag, r.comparacion, r.limite, r.tipo_asfalto, r.solo_en_marcha,
+                                  r.prioridad, r.mensaje
+                           FROM mantpred.reglas_alarma r JOIN mantpred.sensores s ON s.id = r.sensor_id
+                           WHERE r.activa""")
+            cols = ("id", "codigo", "tag", "comparacion", "limite", "tipo_asfalto", "solo_en_marcha",
+                    "prioridad", "mensaje")
+            nuevo["reglas"] = [{c: _get(r, c, i) for i, c in enumerate(cols)} for r in cur.fetchall()]
+            cur.execute("SELECT id, codigo FROM mantpred.equipos")
+            nuevo["equipos"] = {_get(r, "codigo", 1): _get(r, "id", 0) for r in cur.fetchall()}
+            _cache.update(nuevo)
+        return dict(_cache)
 
 
 def _get(fila, clave, indice):
@@ -95,7 +101,8 @@ def _get(fila, clave, indice):
 
 
 def limpiar_cache() -> None:
-    _cache.clear()
+    with _cache_lock:
+        _cache.clear()
 
 
 # ---------------------------------------------------------------- guardado
@@ -260,7 +267,7 @@ def _dias(v) -> float | None:
 def evaluar_alarmas(cur, equipo_id: int, fuente: str, minuto: dt.datetime, confirmado_ae: bool = False,
                     sensores_ae: list | None = None) -> dict:
     """Abre o cierra alarmas según las condiciones de los últimos 5 minutos con datos."""
-    cat = _cache
+    cat = _catalogos(cur)
     cur.execute("""SELECT min(ts) AS desde FROM (
                        SELECT ts FROM mantpred.estados_equipo
                        WHERE equipo_id = %s AND fuente = %s AND ts <= %s ORDER BY ts DESC LIMIT 5) u""",
@@ -283,8 +290,11 @@ def evaluar_alarmas(cur, equipo_id: int, fuente: str, minuto: dt.datetime, confi
     for clave, c in ventana.items():
         if c["minutos"] >= 3 and clave not in activas:
             if c["origen"] == "regla":
-                regla = next(r for r in cat["reglas"] if r["id"] == c["regla_id"])
-                prioridad, mensaje, tf = regla["prioridad"], regla["mensaje"], None
+                regla = next((r for r in cat["reglas"] if r["id"] == c["regla_id"]), None)
+                if regla is None:
+                    prioridad, mensaje, tf = "media", c["clave"], None
+                else:
+                    prioridad, mensaje, tf = regla["prioridad"], regla["mensaje"], None
                 detalle = {"origen": "regla fija"}
             else:
                 falla = next((k for k, v in cat["fallas"].items() if v["id"] == c["tipo_falla_id"]), None)
@@ -324,19 +334,22 @@ def _hubo_diagnostico(cur, equipo_id, fuente, desde, hasta, tipo_falla_id) -> bo
 
 
 # ---------------------------------------------------------------- simulación
+_SQL_REINICIO = (
+    ("lecturas", """DELETE FROM mantpred.lecturas l USING mantpred.sensores s
+                    WHERE s.id = l.sensor_id AND s.equipo_id = %s AND l.fuente = %s AND l.ts >= %s"""),
+    ("estados_equipo", "DELETE FROM mantpred.estados_equipo WHERE equipo_id = %s AND fuente = %s AND ts >= %s"),
+    ("predicciones", "DELETE FROM mantpred.predicciones WHERE equipo_id = %s AND fuente = %s AND ts >= %s"),
+    ("condiciones_minuto", "DELETE FROM mantpred.condiciones_minuto WHERE equipo_id = %s AND fuente = %s AND ts >= %s"),
+    ("alarmas", "DELETE FROM mantpred.alarmas WHERE equipo_id = %s AND fuente = %s AND inicio >= %s"),
+)
+
+
 def reiniciar_desde(cur, equipo_id: int, fuente: str, desde: dt.datetime) -> dict:
     """Al saltar a otra fecha de la simulación (HU-17): cierra las alarmas activas y borra lo
     simulado desde 'desde' en adelante, para que el dashboard no mezcle el futuro con el presente."""
     borrado = {}
-    for tabla, col in (("lecturas", "ts"), ("estados_equipo", "ts"), ("predicciones", "ts"),
-                       ("condiciones_minuto", "ts"), ("alarmas", "inicio")):
-        if tabla == "lecturas":
-            cur.execute("""DELETE FROM mantpred.lecturas l USING mantpred.sensores s
-                           WHERE s.id = l.sensor_id AND s.equipo_id = %s AND l.fuente = %s AND l.ts >= %s""",
-                        (equipo_id, fuente, desde))
-        else:
-            cur.execute(f"DELETE FROM mantpred.{tabla} WHERE equipo_id = %s AND fuente = %s AND {col} >= %s",
-                        (equipo_id, fuente, desde))
+    for tabla, sql in _SQL_REINICIO:
+        cur.execute(sql, (equipo_id, fuente, desde))
         borrado[tabla] = cur.rowcount
     cur.execute("UPDATE mantpred.alarmas SET fin = %s WHERE equipo_id = %s AND fuente = %s AND fin IS NULL",
                 (desde, equipo_id, fuente))

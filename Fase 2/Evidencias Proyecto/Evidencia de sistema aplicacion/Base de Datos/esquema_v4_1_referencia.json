@@ -1,0 +1,1452 @@
+{
+ "catalogo": {
+  "componentes": [
+   "11",
+   "58e3c226bd77ec76358f8a4e017b3add"
+  ],
+  "equipos": [
+   "1",
+   "eb868c2f2cf575cd6d80523869fc0c91"
+  ],
+  "rangos_operacion": [
+   "432",
+   "c7a1630d15e7df94c306ed7ef3c7cc34"
+  ],
+  "reglas_alarma": [
+   "8",
+   "5e208e06e4f99ffdadfd352622487321"
+  ],
+  "roles": [
+   "2",
+   "5978b4e98fb176cb69e1f79258dd15d0"
+  ],
+  "sensores": [
+   "47",
+   "e84658914fb6353ff6bff579dd671916"
+  ],
+  "tipos_falla": [
+   "8",
+   "58dc40a6ec33f4e6d6265217fd5d2289"
+  ]
+ },
+ "columnas": {
+  "alarmas.clave": [
+   "character varying(80)",
+   "true",
+   "",
+   ""
+  ],
+  "alarmas.comentario": [
+   "character varying(250)",
+   "false",
+   "",
+   ""
+  ],
+  "alarmas.detalle": [
+   "jsonb",
+   "false",
+   "",
+   ""
+  ],
+  "alarmas.equipo_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "alarmas.fin": [
+   "timestamp with time zone",
+   "false",
+   "",
+   ""
+  ],
+  "alarmas.fuente": [
+   "character varying(10)",
+   "true",
+   "'real'::character varying",
+   ""
+  ],
+  "alarmas.id": [
+   "bigint",
+   "true",
+   "",
+   "a"
+  ],
+  "alarmas.inicio": [
+   "timestamp with time zone",
+   "true",
+   "",
+   ""
+  ],
+  "alarmas.mensaje": [
+   "character varying(250)",
+   "false",
+   "",
+   ""
+  ],
+  "alarmas.origen": [
+   "character varying(10)",
+   "true",
+   "",
+   ""
+  ],
+  "alarmas.reconocida_en": [
+   "timestamp with time zone",
+   "false",
+   "",
+   ""
+  ],
+  "alarmas.reconocida_por": [
+   "integer",
+   "false",
+   "",
+   ""
+  ],
+  "alarmas.regla_id": [
+   "smallint",
+   "false",
+   "",
+   ""
+  ],
+  "alarmas.severidad": [
+   "character varying(12)",
+   "true",
+   "",
+   ""
+  ],
+  "alarmas.tipo_falla_id": [
+   "smallint",
+   "false",
+   "",
+   ""
+  ],
+  "alarmas.valor": [
+   "numeric(12,3)",
+   "false",
+   "",
+   ""
+  ],
+  "auditoria_accesos.accion": [
+   "character varying(50)",
+   "true",
+   "",
+   ""
+  ],
+  "auditoria_accesos.detalle": [
+   "character varying(250)",
+   "false",
+   "",
+   ""
+  ],
+  "auditoria_accesos.email": [
+   "character varying(150)",
+   "false",
+   "",
+   ""
+  ],
+  "auditoria_accesos.fecha": [
+   "timestamp with time zone",
+   "true",
+   "now()",
+   ""
+  ],
+  "auditoria_accesos.id": [
+   "bigint",
+   "true",
+   "",
+   "a"
+  ],
+  "auditoria_accesos.ip": [
+   "inet",
+   "false",
+   "",
+   ""
+  ],
+  "auditoria_accesos.usuario_id": [
+   "integer",
+   "false",
+   "",
+   ""
+  ],
+  "componentes.codigo": [
+   "character varying(20)",
+   "true",
+   "",
+   ""
+  ],
+  "componentes.equipo_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "componentes.id": [
+   "smallint",
+   "true",
+   "",
+   "a"
+  ],
+  "componentes.nombre": [
+   "character varying(80)",
+   "true",
+   "",
+   ""
+  ],
+  "componentes.tipo": [
+   "character varying(20)",
+   "true",
+   "",
+   ""
+  ],
+  "condiciones_minuto.clave": [
+   "character varying(80)",
+   "true",
+   "",
+   ""
+  ],
+  "condiciones_minuto.equipo_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "condiciones_minuto.fuente": [
+   "character varying(10)",
+   "true",
+   "",
+   ""
+  ],
+  "condiciones_minuto.origen": [
+   "character varying(10)",
+   "true",
+   "",
+   ""
+  ],
+  "condiciones_minuto.regla_id": [
+   "smallint",
+   "false",
+   "",
+   ""
+  ],
+  "condiciones_minuto.tipo_falla_id": [
+   "smallint",
+   "false",
+   "",
+   ""
+  ],
+  "condiciones_minuto.ts": [
+   "timestamp with time zone",
+   "true",
+   "",
+   ""
+  ],
+  "condiciones_minuto.valor": [
+   "numeric(14,4)",
+   "false",
+   "",
+   ""
+  ],
+  "equipos.codigo": [
+   "character varying(20)",
+   "true",
+   "",
+   ""
+  ],
+  "equipos.id": [
+   "integer",
+   "true",
+   "",
+   "a"
+  ],
+  "equipos.marca": [
+   "character varying(60)",
+   "false",
+   "",
+   ""
+  ],
+  "equipos.modelo": [
+   "character varying(60)",
+   "false",
+   "",
+   ""
+  ],
+  "equipos.nombre": [
+   "character varying(100)",
+   "true",
+   "",
+   ""
+  ],
+  "equipos.potencia": [
+   "character varying(40)",
+   "false",
+   "",
+   ""
+  ],
+  "equipos.tipo": [
+   "character varying(60)",
+   "true",
+   "",
+   ""
+  ],
+  "equipos.ubicacion": [
+   "character varying(120)",
+   "false",
+   "",
+   ""
+  ],
+  "estados_equipo.equipo_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "estados_equipo.estado": [
+   "character varying(15)",
+   "true",
+   "",
+   ""
+  ],
+  "estados_equipo.fuente": [
+   "character varying(10)",
+   "true",
+   "'real'::character varying",
+   ""
+  ],
+  "estados_equipo.id": [
+   "bigint",
+   "true",
+   "",
+   "a"
+  ],
+  "estados_equipo.tipo_asfalto": [
+   "character varying(15)",
+   "false",
+   "",
+   ""
+  ],
+  "estados_equipo.ts": [
+   "timestamp with time zone",
+   "true",
+   "",
+   ""
+  ],
+  "lecturas.calidad": [
+   "character varying(10)",
+   "true",
+   "'buena'::character varying",
+   ""
+  ],
+  "lecturas.fuente": [
+   "character varying(10)",
+   "true",
+   "'real'::character varying",
+   ""
+  ],
+  "lecturas.id": [
+   "bigint",
+   "true",
+   "",
+   "a"
+  ],
+  "lecturas.sensor_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "lecturas.ts": [
+   "timestamp with time zone",
+   "true",
+   "",
+   ""
+  ],
+  "lecturas.valor": [
+   "numeric(12,3)",
+   "false",
+   "",
+   ""
+  ],
+  "mantenimiento_fallas.mantenimiento_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "mantenimiento_fallas.tipo_falla_id": [
+   "smallint",
+   "true",
+   "",
+   ""
+  ],
+  "mantenimientos.alarma_id": [
+   "bigint",
+   "false",
+   "",
+   ""
+  ],
+  "mantenimientos.componente_id": [
+   "smallint",
+   "false",
+   "",
+   ""
+  ],
+  "mantenimientos.descripcion": [
+   "text",
+   "false",
+   "",
+   ""
+  ],
+  "mantenimientos.equipo_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "mantenimientos.fecha_fin": [
+   "timestamp with time zone",
+   "false",
+   "",
+   ""
+  ],
+  "mantenimientos.fecha_inicio": [
+   "timestamp with time zone",
+   "true",
+   "",
+   ""
+  ],
+  "mantenimientos.fuente": [
+   "character varying(10)",
+   "true",
+   "'real'::character varying",
+   ""
+  ],
+  "mantenimientos.id": [
+   "integer",
+   "true",
+   "",
+   "a"
+  ],
+  "mantenimientos.origen_registro": [
+   "character varying(10)",
+   "true",
+   "'dashboard'::character varying",
+   ""
+  ],
+  "mantenimientos.registrado_por": [
+   "integer",
+   "false",
+   "",
+   ""
+  ],
+  "mantenimientos.tipo": [
+   "character varying(12)",
+   "true",
+   "",
+   ""
+  ],
+  "predicciones.alerta": [
+   "boolean",
+   "true",
+   "false",
+   ""
+  ],
+  "predicciones.detalle": [
+   "jsonb",
+   "false",
+   "",
+   ""
+  ],
+  "predicciones.dias_estimados": [
+   "numeric(10,2)",
+   "false",
+   "",
+   ""
+  ],
+  "predicciones.equipo_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "predicciones.error_ae": [
+   "numeric(14,4)",
+   "false",
+   "",
+   ""
+  ],
+  "predicciones.fuente": [
+   "character varying(10)",
+   "true",
+   "'real'::character varying",
+   ""
+  ],
+  "predicciones.horizonte": [
+   "character varying(6)",
+   "true",
+   "'actual'::character varying",
+   ""
+  ],
+  "predicciones.id": [
+   "bigint",
+   "true",
+   "",
+   "a"
+  ],
+  "predicciones.indice_salud": [
+   "numeric(8,2)",
+   "false",
+   "",
+   ""
+  ],
+  "predicciones.metodo": [
+   "character varying(20)",
+   "false",
+   "",
+   ""
+  ],
+  "predicciones.modelo": [
+   "character varying(15)",
+   "true",
+   "",
+   ""
+  ],
+  "predicciones.modelo_version": [
+   "character varying(30)",
+   "true",
+   "",
+   ""
+  ],
+  "predicciones.prob_falla": [
+   "numeric(5,4)",
+   "false",
+   "",
+   ""
+  ],
+  "predicciones.tipo_falla_id": [
+   "smallint",
+   "false",
+   "",
+   ""
+  ],
+  "predicciones.ts": [
+   "timestamp with time zone",
+   "true",
+   "",
+   ""
+  ],
+  "predicciones.umbral": [
+   "numeric(10,4)",
+   "false",
+   "",
+   ""
+  ],
+  "rangos_operacion.estado": [
+   "character varying(15)",
+   "true",
+   "",
+   ""
+  ],
+  "rangos_operacion.id": [
+   "integer",
+   "true",
+   "",
+   "a"
+  ],
+  "rangos_operacion.normal_max": [
+   "numeric(12,3)",
+   "true",
+   "",
+   ""
+  ],
+  "rangos_operacion.normal_min": [
+   "numeric(12,3)",
+   "true",
+   "",
+   ""
+  ],
+  "rangos_operacion.sensor_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "rangos_operacion.tipo_asfalto": [
+   "character varying(15)",
+   "true",
+   "",
+   ""
+  ],
+  "reglas_alarma.accion": [
+   "character varying(250)",
+   "false",
+   "",
+   ""
+  ],
+  "reglas_alarma.activa": [
+   "boolean",
+   "true",
+   "true",
+   ""
+  ],
+  "reglas_alarma.codigo": [
+   "character varying(40)",
+   "true",
+   "",
+   ""
+  ],
+  "reglas_alarma.comparacion": [
+   "character(1)",
+   "true",
+   "",
+   ""
+  ],
+  "reglas_alarma.id": [
+   "smallint",
+   "true",
+   "",
+   "a"
+  ],
+  "reglas_alarma.limite": [
+   "numeric(12,3)",
+   "true",
+   "",
+   ""
+  ],
+  "reglas_alarma.mensaje": [
+   "character varying(120)",
+   "true",
+   "",
+   ""
+  ],
+  "reglas_alarma.prioridad": [
+   "character varying(10)",
+   "true",
+   "",
+   ""
+  ],
+  "reglas_alarma.sensor_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "reglas_alarma.solo_en_marcha": [
+   "boolean",
+   "true",
+   "",
+   ""
+  ],
+  "reglas_alarma.tipo_asfalto": [
+   "character varying(15)",
+   "false",
+   "",
+   ""
+  ],
+  "roles.descripcion": [
+   "character varying(200)",
+   "false",
+   "",
+   ""
+  ],
+  "roles.id": [
+   "smallint",
+   "true",
+   "",
+   "a"
+  ],
+  "roles.nivel": [
+   "smallint",
+   "true",
+   "",
+   ""
+  ],
+  "roles.nombre": [
+   "character varying(30)",
+   "true",
+   "",
+   ""
+  ],
+  "sensores.activo": [
+   "boolean",
+   "true",
+   "true",
+   ""
+  ],
+  "sensores.componente_id": [
+   "smallint",
+   "true",
+   "",
+   ""
+  ],
+  "sensores.descripcion": [
+   "character varying(250)",
+   "false",
+   "",
+   ""
+  ],
+  "sensores.equipo_id": [
+   "integer",
+   "true",
+   "",
+   ""
+  ],
+  "sensores.id": [
+   "integer",
+   "true",
+   "",
+   "a"
+  ],
+  "sensores.nombre": [
+   "character varying(80)",
+   "true",
+   "",
+   ""
+  ],
+  "sensores.normal_max": [
+   "numeric(12,3)",
+   "false",
+   "",
+   ""
+  ],
+  "sensores.normal_min": [
+   "numeric(12,3)",
+   "false",
+   "",
+   ""
+  ],
+  "sensores.origen": [
+   "character varying(10)",
+   "true",
+   "'real'::character varying",
+   ""
+  ],
+  "sensores.rango_max": [
+   "numeric(12,3)",
+   "false",
+   "",
+   ""
+  ],
+  "sensores.rango_min": [
+   "numeric(12,3)",
+   "false",
+   "",
+   ""
+  ],
+  "sensores.senal": [
+   "character varying(20)",
+   "true",
+   "'4-20 mA'::character varying",
+   ""
+  ],
+  "sensores.tag": [
+   "character varying(40)",
+   "true",
+   "",
+   ""
+  ],
+  "sensores.tipo_sensor": [
+   "character varying(80)",
+   "true",
+   "",
+   ""
+  ],
+  "sensores.unidad": [
+   "character varying(15)",
+   "true",
+   "",
+   ""
+  ],
+  "sensores.variable": [
+   "character varying(40)",
+   "true",
+   "",
+   ""
+  ],
+  "tipos_falla.accion": [
+   "character varying(250)",
+   "false",
+   "",
+   ""
+  ],
+  "tipos_falla.codigo": [
+   "character varying(60)",
+   "true",
+   "",
+   ""
+  ],
+  "tipos_falla.componente_id": [
+   "smallint",
+   "false",
+   "",
+   ""
+  ],
+  "tipos_falla.id": [
+   "smallint",
+   "true",
+   "",
+   "a"
+  ],
+  "tipos_falla.prioridad": [
+   "character varying(10)",
+   "true",
+   "",
+   ""
+  ],
+  "tipos_falla.titulo": [
+   "character varying(100)",
+   "true",
+   "",
+   ""
+  ],
+  "usuarios.activo": [
+   "boolean",
+   "true",
+   "true",
+   ""
+  ],
+  "usuarios.bloqueado_hasta": [
+   "timestamp with time zone",
+   "false",
+   "",
+   ""
+  ],
+  "usuarios.creado_en": [
+   "timestamp with time zone",
+   "true",
+   "now()",
+   ""
+  ],
+  "usuarios.debe_cambiar_clave": [
+   "boolean",
+   "true",
+   "true",
+   ""
+  ],
+  "usuarios.email": [
+   "character varying(150)",
+   "true",
+   "",
+   ""
+  ],
+  "usuarios.id": [
+   "integer",
+   "true",
+   "",
+   "a"
+  ],
+  "usuarios.intentos_fallidos": [
+   "smallint",
+   "true",
+   "0",
+   ""
+  ],
+  "usuarios.nombre": [
+   "character varying(120)",
+   "true",
+   "",
+   ""
+  ],
+  "usuarios.password_hash": [
+   "character varying(255)",
+   "true",
+   "",
+   ""
+  ],
+  "usuarios.rol_id": [
+   "smallint",
+   "true",
+   "",
+   ""
+  ],
+  "usuarios.ultimo_acceso": [
+   "timestamp with time zone",
+   "false",
+   "",
+   ""
+  ]
+ },
+ "extensiones": {
+  "pgcrypto": [
+   "extensions"
+  ]
+ },
+ "funciones": {
+  "purgar_datos_simulados(dias integer)": [
+   "14a6360f949df18724d283c9607946eb"
+  ]
+ },
+ "indices": {
+  "alarmas_pkey": [
+   "CREATEUNIQUEINDEXalarmas_pkeyONmantpred.alarmasUSINGbtreeid"
+  ],
+  "auditoria_accesos_pkey": [
+   "CREATEUNIQUEINDEXauditoria_accesos_pkeyONmantpred.auditoria_accesosUSINGbtreeid"
+  ],
+  "componentes_codigo_key": [
+   "CREATEUNIQUEINDEXcomponentes_codigo_keyONmantpred.componentesUSINGbtreecodigo"
+  ],
+  "componentes_id_equipo_key": [
+   "CREATEUNIQUEINDEXcomponentes_id_equipo_keyONmantpred.componentesUSINGbtreeid,equipo_id"
+  ],
+  "componentes_pkey": [
+   "CREATEUNIQUEINDEXcomponentes_pkeyONmantpred.componentesUSINGbtreeid"
+  ],
+  "condiciones_minuto_pkey": [
+   "CREATEUNIQUEINDEXcondiciones_minuto_pkeyONmantpred.condiciones_minutoUSINGbtreeequipo_id,fuente,ts,clave"
+  ],
+  "equipos_codigo_key": [
+   "CREATEUNIQUEINDEXequipos_codigo_keyONmantpred.equiposUSINGbtreecodigo"
+  ],
+  "equipos_nombre_key": [
+   "CREATEUNIQUEINDEXequipos_nombre_keyONmantpred.equiposUSINGbtreenombre"
+  ],
+  "equipos_pkey": [
+   "CREATEUNIQUEINDEXequipos_pkeyONmantpred.equiposUSINGbtreeid"
+  ],
+  "estados_equipo_equipo_id_fuente_ts_key": [
+   "CREATEUNIQUEINDEXestados_equipo_equipo_id_fuente_ts_keyONmantpred.estados_equipoUSINGbtreeequipo_id,fuente,ts"
+  ],
+  "estados_equipo_pkey": [
+   "CREATEUNIQUEINDEXestados_equipo_pkeyONmantpred.estados_equipoUSINGbtreeid"
+  ],
+  "ix_alarmas_activas": [
+   "CREATEINDEXix_alarmas_activasONmantpred.alarmasUSINGbtreeequipo_idWHEREfinISNULL"
+  ],
+  "ix_alarmas_equipo_inicio": [
+   "CREATEINDEXix_alarmas_equipo_inicioONmantpred.alarmasUSINGbtreeequipo_id,inicioDESC"
+  ],
+  "ix_alarmas_fuente_inicio": [
+   "CREATEINDEXix_alarmas_fuente_inicioONmantpred.alarmasUSINGbtreefuente,inicioDESC"
+  ],
+  "ix_alarmas_pendientes": [
+   "CREATEINDEXix_alarmas_pendientesONmantpred.alarmasUSINGbtreeinicioDESCWHEREreconocida_enISNULL"
+  ],
+  "ix_auditoria_usuario_fecha": [
+   "CREATEINDEXix_auditoria_usuario_fechaONmantpred.auditoria_accesosUSINGbtreeusuario_id,fechaDESC"
+  ],
+  "ix_lecturas_ts": [
+   "CREATEINDEXix_lecturas_tsONmantpred.lecturasUSINGbtreets"
+  ],
+  "ix_mant_equipo_fecha": [
+   "CREATEINDEXix_mant_equipo_fechaONmantpred.mantenimientosUSINGbtreeequipo_id,fecha_inicioDESC"
+  ],
+  "ix_mant_fallas_falla": [
+   "CREATEINDEXix_mant_fallas_fallaONmantpred.mantenimiento_fallasUSINGbtreetipo_falla_id"
+  ],
+  "ix_mantenimientos_componente": [
+   "CREATEINDEXix_mantenimientos_componenteONmantpred.mantenimientosUSINGbtreecomponente_id"
+  ],
+  "ix_pred_equipo_modelo_ts": [
+   "CREATEINDEXix_pred_equipo_modelo_tsONmantpred.prediccionesUSINGbtreeequipo_id,fuente,modelo,tsDESC"
+  ],
+  "ix_sensores_componente": [
+   "CREATEINDEXix_sensores_componenteONmantpred.sensoresUSINGbtreecomponente_id"
+  ],
+  "ix_sensores_equipo": [
+   "CREATEINDEXix_sensores_equipoONmantpred.sensoresUSINGbtreeequipo_id"
+  ],
+  "ix_usuarios_rol": [
+   "CREATEINDEXix_usuarios_rolONmantpred.usuariosUSINGbtreerol_id"
+  ],
+  "lecturas_pkey": [
+   "CREATEUNIQUEINDEXlecturas_pkeyONmantpred.lecturasUSINGbtreeid"
+  ],
+  "lecturas_sensor_id_fuente_ts_key": [
+   "CREATEUNIQUEINDEXlecturas_sensor_id_fuente_ts_keyONmantpred.lecturasUSINGbtreesensor_id,fuente,ts"
+  ],
+  "mantenimiento_fallas_pkey": [
+   "CREATEUNIQUEINDEXmantenimiento_fallas_pkeyONmantpred.mantenimiento_fallasUSINGbtreemantenimiento_id,tipo_falla_id"
+  ],
+  "mantenimientos_pkey": [
+   "CREATEUNIQUEINDEXmantenimientos_pkeyONmantpred.mantenimientosUSINGbtreeid"
+  ],
+  "predicciones_pkey": [
+   "CREATEUNIQUEINDEXpredicciones_pkeyONmantpred.prediccionesUSINGbtreeid"
+  ],
+  "rangos_operacion_pkey": [
+   "CREATEUNIQUEINDEXrangos_operacion_pkeyONmantpred.rangos_operacionUSINGbtreeid"
+  ],
+  "rangos_operacion_sensor_id_estado_tipo_asfalto_key": [
+   "CREATEUNIQUEINDEXrangos_operacion_sensor_id_estado_tipo_asfalto_keyONmantpred.rangos_operacionUSINGbtreesensor_id,estado,tipo_asfalto"
+  ],
+  "reglas_alarma_codigo_key": [
+   "CREATEUNIQUEINDEXreglas_alarma_codigo_keyONmantpred.reglas_alarmaUSINGbtreecodigo"
+  ],
+  "reglas_alarma_pkey": [
+   "CREATEUNIQUEINDEXreglas_alarma_pkeyONmantpred.reglas_alarmaUSINGbtreeid"
+  ],
+  "roles_nivel_key": [
+   "CREATEUNIQUEINDEXroles_nivel_keyONmantpred.rolesUSINGbtreenivel"
+  ],
+  "roles_nombre_key": [
+   "CREATEUNIQUEINDEXroles_nombre_keyONmantpred.rolesUSINGbtreenombre"
+  ],
+  "roles_pkey": [
+   "CREATEUNIQUEINDEXroles_pkeyONmantpred.rolesUSINGbtreeid"
+  ],
+  "sensores_pkey": [
+   "CREATEUNIQUEINDEXsensores_pkeyONmantpred.sensoresUSINGbtreeid"
+  ],
+  "sensores_tag_key": [
+   "CREATEUNIQUEINDEXsensores_tag_keyONmantpred.sensoresUSINGbtreetag"
+  ],
+  "tipos_falla_codigo_key": [
+   "CREATEUNIQUEINDEXtipos_falla_codigo_keyONmantpred.tipos_fallaUSINGbtreecodigo"
+  ],
+  "tipos_falla_pkey": [
+   "CREATEUNIQUEINDEXtipos_falla_pkeyONmantpred.tipos_fallaUSINGbtreeid"
+  ],
+  "usuarios_pkey": [
+   "CREATEUNIQUEINDEXusuarios_pkeyONmantpred.usuariosUSINGbtreeid"
+  ],
+  "ux_alarma_activa": [
+   "CREATEUNIQUEINDEXux_alarma_activaONmantpred.alarmasUSINGbtreeequipo_id,fuente,claveWHEREfinISNULL"
+  ],
+  "ux_pred_predictivo": [
+   "CREATEUNIQUEINDEXux_pred_predictivoONmantpred.prediccionesUSINGbtreeequipo_id,fuente,tipo_falla_id,horizonte,tsWHEREmodelo='predictivo'"
+  ],
+  "ux_pred_tiempo_real": [
+   "CREATEUNIQUEINDEXux_pred_tiempo_realONmantpred.prediccionesUSINGbtreeequipo_id,fuente,modelo,tsWHEREmodelo=ANYARRAY['diagnostico','autoencoder']"
+  ],
+  "ux_usuarios_email": [
+   "CREATEUNIQUEINDEXux_usuarios_emailONmantpred.usuariosUSINGbtreeloweremail"
+  ]
+ },
+ "restricciones": {
+  "alarmas.alarmas_check": [
+   "c",
+   "CHECKreconocida_porISNULL=reconocida_enISNULL"
+  ],
+  "alarmas.alarmas_check1": [
+   "c",
+   "CHECKfinISNULLORfin>=inicio"
+  ],
+  "alarmas.alarmas_check3": [
+   "c",
+   "CHECKorigen<>'modelo'ORtipo_falla_idISNOTNULL"
+  ],
+  "alarmas.alarmas_equipo_id_fkey": [
+   "f",
+   "FOREIGN KEY (equipo_id) REFERENCES mantpred.equipos(id)"
+  ],
+  "alarmas.alarmas_fuente_check": [
+   "c",
+   "CHECKfuente=ANYARRAY['real','simulado']"
+  ],
+  "alarmas.alarmas_origen_check": [
+   "c",
+   "CHECKorigen=ANYARRAY['regla','modelo']"
+  ],
+  "alarmas.alarmas_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "alarmas.alarmas_reconocida_por_fkey": [
+   "f",
+   "FOREIGN KEY (reconocida_por) REFERENCES mantpred.usuarios(id)"
+  ],
+  "alarmas.alarmas_regla_check": [
+   "c",
+   "CHECKorigen<>'regla'ORregla_idISNOTNULLANDtipo_falla_idISNULL"
+  ],
+  "alarmas.alarmas_regla_id_fkey": [
+   "f",
+   "FOREIGN KEY (regla_id) REFERENCES mantpred.reglas_alarma(id)"
+  ],
+  "alarmas.alarmas_severidad_check": [
+   "c",
+   "CHECKseveridad=ANYARRAY['aviso','advertencia','critica']"
+  ],
+  "alarmas.alarmas_tipo_falla_id_fkey": [
+   "f",
+   "FOREIGN KEY (tipo_falla_id) REFERENCES mantpred.tipos_falla(id)"
+  ],
+  "auditoria_accesos.auditoria_accesos_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "auditoria_accesos.auditoria_accesos_usuario_id_fkey": [
+   "f",
+   "FOREIGN KEY (usuario_id) REFERENCES mantpred.usuarios(id) ON DELETE SET NULL"
+  ],
+  "componentes.componentes_codigo_key": [
+   "u",
+   "UNIQUE (codigo)"
+  ],
+  "componentes.componentes_equipo_id_fkey": [
+   "f",
+   "FOREIGN KEY (equipo_id) REFERENCES mantpred.equipos(id)"
+  ],
+  "componentes.componentes_id_equipo_key": [
+   "u",
+   "UNIQUE (id, equipo_id)"
+  ],
+  "componentes.componentes_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "componentes.componentes_tipo_check": [
+   "c",
+   "CHECKtipo=ANYARRAY['estanque','instrumento','filtro','bomba','valvula','molino','intercambiador']"
+  ],
+  "condiciones_minuto.condiciones_minuto_equipo_id_fkey": [
+   "f",
+   "FOREIGN KEY (equipo_id) REFERENCES mantpred.equipos(id)"
+  ],
+  "condiciones_minuto.condiciones_minuto_fuente_check": [
+   "c",
+   "CHECKfuente=ANYARRAY['real','simulado']"
+  ],
+  "condiciones_minuto.condiciones_minuto_origen_check": [
+   "c",
+   "CHECKorigen=ANYARRAY['modelo','regla']"
+  ],
+  "condiciones_minuto.condiciones_minuto_pkey": [
+   "p",
+   "PRIMARY KEY (equipo_id, fuente, ts, clave)"
+  ],
+  "condiciones_minuto.condiciones_minuto_regla_id_fkey": [
+   "f",
+   "FOREIGN KEY (regla_id) REFERENCES mantpred.reglas_alarma(id)"
+  ],
+  "condiciones_minuto.condiciones_minuto_tipo_falla_id_fkey": [
+   "f",
+   "FOREIGN KEY (tipo_falla_id) REFERENCES mantpred.tipos_falla(id)"
+  ],
+  "equipos.equipos_codigo_key": [
+   "u",
+   "UNIQUE (codigo)"
+  ],
+  "equipos.equipos_nombre_key": [
+   "u",
+   "UNIQUE (nombre)"
+  ],
+  "equipos.equipos_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "estados_equipo.estados_equipo_equipo_id_fkey": [
+   "f",
+   "FOREIGN KEY (equipo_id) REFERENCES mantpred.equipos(id)"
+  ],
+  "estados_equipo.estados_equipo_equipo_id_fuente_ts_key": [
+   "u",
+   "UNIQUE (equipo_id, fuente, ts)"
+  ],
+  "estados_equipo.estados_equipo_estado_check": [
+   "c",
+   "CHECKestado=ANYARRAY['detenida','preparacion','produccion','espera','limpieza','mantenimiento','falla']"
+  ],
+  "estados_equipo.estados_equipo_fuente_check": [
+   "c",
+   "CHECKfuente=ANYARRAY['real','simulado']"
+  ],
+  "estados_equipo.estados_equipo_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "estados_equipo.estados_equipo_tipo_asfalto_check": [
+   "c",
+   "CHECKtipo_asfalto=ANYARRAY['convencional','plastomerico','ninguno']"
+  ],
+  "lecturas.lecturas_calidad_check": [
+   "c",
+   "CHECKcalidad=ANYARRAY['buena','dudosa','mala']"
+  ],
+  "lecturas.lecturas_fuente_check": [
+   "c",
+   "CHECKfuente=ANYARRAY['real','simulado']"
+  ],
+  "lecturas.lecturas_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "lecturas.lecturas_sensor_id_fkey": [
+   "f",
+   "FOREIGN KEY (sensor_id) REFERENCES mantpred.sensores(id)"
+  ],
+  "lecturas.lecturas_sensor_id_fuente_ts_key": [
+   "u",
+   "UNIQUE (sensor_id, fuente, ts)"
+  ],
+  "mantenimiento_fallas.mantenimiento_fallas_mantenimiento_id_fkey": [
+   "f",
+   "FOREIGN KEY (mantenimiento_id) REFERENCES mantpred.mantenimientos(id) ON DELETE CASCADE"
+  ],
+  "mantenimiento_fallas.mantenimiento_fallas_pkey": [
+   "p",
+   "PRIMARY KEY (mantenimiento_id, tipo_falla_id)"
+  ],
+  "mantenimiento_fallas.mantenimiento_fallas_tipo_falla_id_fkey": [
+   "f",
+   "FOREIGN KEY (tipo_falla_id) REFERENCES mantpred.tipos_falla(id)"
+  ],
+  "mantenimientos.mantenimientos_alarma_id_fkey": [
+   "f",
+   "FOREIGN KEY (alarma_id) REFERENCES mantpred.alarmas(id)"
+  ],
+  "mantenimientos.mantenimientos_check": [
+   "c",
+   "CHECKfecha_finISNULLORfecha_fin>=fecha_inicio"
+  ],
+  "mantenimientos.mantenimientos_componente_equipo_fkey": [
+   "f",
+   "FOREIGN KEY (componente_id, equipo_id) REFERENCES mantpred.componentes(id, equipo_id)"
+  ],
+  "mantenimientos.mantenimientos_equipo_id_fkey": [
+   "f",
+   "FOREIGN KEY (equipo_id) REFERENCES mantpred.equipos(id)"
+  ],
+  "mantenimientos.mantenimientos_fuente_check": [
+   "c",
+   "CHECKfuente=ANYARRAY['real','simulado']"
+  ],
+  "mantenimientos.mantenimientos_origen_registro_check": [
+   "c",
+   "CHECKorigen_registro=ANYARRAY['bitacora','dashboard']"
+  ],
+  "mantenimientos.mantenimientos_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "mantenimientos.mantenimientos_registrado_por_fkey": [
+   "f",
+   "FOREIGN KEY (registrado_por) REFERENCES mantpred.usuarios(id)"
+  ],
+  "mantenimientos.mantenimientos_tipo_check": [
+   "c",
+   "CHECKtipo=ANYARRAY['preventivo','correctivo','predictivo']"
+  ],
+  "predicciones.predicciones_autoencoder_check": [
+   "c",
+   "CHECKmodelo<>'autoencoder'ORtipo_falla_idISNULLANDprob_fallaISNULL"
+  ],
+  "predicciones.predicciones_diagnostico_check": [
+   "c",
+   "CHECKmodelo<>'diagnostico'ORerror_aeISNULL"
+  ],
+  "predicciones.predicciones_equipo_id_fkey": [
+   "f",
+   "FOREIGN KEY (equipo_id) REFERENCES mantpred.equipos(id)"
+  ],
+  "predicciones.predicciones_fuente_check": [
+   "c",
+   "CHECKfuente=ANYARRAY['real','simulado']"
+  ],
+  "predicciones.predicciones_horizonte_check": [
+   "c",
+   "CHECKhorizonte=ANYARRAY['actual','24h','5d','15d']"
+  ],
+  "predicciones.predicciones_horizonte_modelo_check": [
+   "c",
+   "CHECKmodelo='predictivo'=horizonte<>'actual'"
+  ],
+  "predicciones.predicciones_modelo_check": [
+   "c",
+   "CHECKmodelo=ANYARRAY['diagnostico','autoencoder','predictivo']"
+  ],
+  "predicciones.predicciones_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "predicciones.predicciones_predictivo_check": [
+   "c",
+   "CHECKmodelo<>'predictivo'ORtipo_falla_idISNOTNULL"
+  ],
+  "predicciones.predicciones_prob_falla_check": [
+   "c",
+   "CHECKprob_falla>=0::numericANDprob_falla<=1::numeric"
+  ],
+  "predicciones.predicciones_tipo_falla_id_fkey": [
+   "f",
+   "FOREIGN KEY (tipo_falla_id) REFERENCES mantpred.tipos_falla(id)"
+  ],
+  "rangos_operacion.rangos_operacion_check": [
+   "c",
+   "CHECKnormal_min<=normal_max"
+  ],
+  "rangos_operacion.rangos_operacion_estado_check": [
+   "c",
+   "CHECKestado=ANYARRAY['detenida','preparacion','produccion','espera','limpieza','mantenimiento']"
+  ],
+  "rangos_operacion.rangos_operacion_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "rangos_operacion.rangos_operacion_sensor_id_estado_tipo_asfalto_key": [
+   "u",
+   "UNIQUE (sensor_id, estado, tipo_asfalto)"
+  ],
+  "rangos_operacion.rangos_operacion_sensor_id_fkey": [
+   "f",
+   "FOREIGN KEY (sensor_id) REFERENCES mantpred.sensores(id)"
+  ],
+  "rangos_operacion.rangos_operacion_tipo_asfalto_check": [
+   "c",
+   "CHECKtipo_asfalto=ANYARRAY['convencional','plastomerico','ninguno']"
+  ],
+  "reglas_alarma.reglas_alarma_codigo_key": [
+   "u",
+   "UNIQUE (codigo)"
+  ],
+  "reglas_alarma.reglas_alarma_comparacion_check": [
+   "c",
+   "CHECKcomparacion=ANYARRAY['>','<']"
+  ],
+  "reglas_alarma.reglas_alarma_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "reglas_alarma.reglas_alarma_prioridad_check": [
+   "c",
+   "CHECKprioridad=ANYARRAY['baja','media','alta']"
+  ],
+  "reglas_alarma.reglas_alarma_sensor_id_fkey": [
+   "f",
+   "FOREIGN KEY (sensor_id) REFERENCES mantpred.sensores(id)"
+  ],
+  "reglas_alarma.reglas_alarma_tipo_asfalto_check": [
+   "c",
+   "CHECKtipo_asfalto=ANYARRAY['convencional','plastomerico']"
+  ],
+  "roles.roles_nivel_check": [
+   "c",
+   "CHECKnivel>=1ANDnivel<=4"
+  ],
+  "roles.roles_nivel_key": [
+   "u",
+   "UNIQUE (nivel)"
+  ],
+  "roles.roles_nombre_check": [
+   "c",
+   "CHECKnombre=ANYARRAY['administrador','operador']"
+  ],
+  "roles.roles_nombre_key": [
+   "u",
+   "UNIQUE (nombre)"
+  ],
+  "roles.roles_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "sensores.sensores_check": [
+   "c",
+   "CHECKrango_minISNULLORrango_maxISNULLORrango_min<rango_max"
+  ],
+  "sensores.sensores_check1": [
+   "c",
+   "CHECKnormal_minISNULLORnormal_maxISNULLORnormal_min<=normal_max"
+  ],
+  "sensores.sensores_componente_equipo_fkey": [
+   "f",
+   "FOREIGN KEY (componente_id, equipo_id) REFERENCES mantpred.componentes(id, equipo_id)"
+  ],
+  "sensores.sensores_equipo_id_fkey": [
+   "f",
+   "FOREIGN KEY (equipo_id) REFERENCES mantpred.equipos(id)"
+  ],
+  "sensores.sensores_origen_check": [
+   "c",
+   "CHECKorigen=ANYARRAY['real','simulado']"
+  ],
+  "sensores.sensores_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "sensores.sensores_tag_key": [
+   "u",
+   "UNIQUE (tag)"
+  ],
+  "tipos_falla.tipos_falla_codigo_key": [
+   "u",
+   "UNIQUE (codigo)"
+  ],
+  "tipos_falla.tipos_falla_componente_id_fkey": [
+   "f",
+   "FOREIGN KEY (componente_id) REFERENCES mantpred.componentes(id)"
+  ],
+  "tipos_falla.tipos_falla_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "tipos_falla.tipos_falla_prioridad_check": [
+   "c",
+   "CHECKprioridad=ANYARRAY['baja','media','alta']"
+  ],
+  "usuarios.usuarios_pkey": [
+   "p",
+   "PRIMARY KEY (id)"
+  ],
+  "usuarios.usuarios_rol_id_fkey": [
+   "f",
+   "FOREIGN KEY (rol_id) REFERENCES mantpred.roles(id)"
+  ]
+ },
+ "tablas": {
+  "alarmas": [
+   "r",
+   "true"
+  ],
+  "auditoria_accesos": [
+   "r",
+   "true"
+  ],
+  "componentes": [
+   "r",
+   "true"
+  ],
+  "condiciones_minuto": [
+   "r",
+   "true"
+  ],
+  "equipos": [
+   "r",
+   "true"
+  ],
+  "estados_equipo": [
+   "r",
+   "true"
+  ],
+  "lecturas": [
+   "r",
+   "true"
+  ],
+  "mantenimiento_fallas": [
+   "r",
+   "true"
+  ],
+  "mantenimientos": [
+   "r",
+   "true"
+  ],
+  "predicciones": [
+   "r",
+   "true"
+  ],
+  "rangos_operacion": [
+   "r",
+   "true"
+  ],
+  "reglas_alarma": [
+   "r",
+   "true"
+  ],
+  "roles": [
+   "r",
+   "true"
+  ],
+  "sensores": [
+   "r",
+   "true"
+  ],
+  "tipos_falla": [
+   "r",
+   "true"
+  ],
+  "usuarios": [
+   "r",
+   "true"
+  ]
+ },
+ "triggers": {}
+}

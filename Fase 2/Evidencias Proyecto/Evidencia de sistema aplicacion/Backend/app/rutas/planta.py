@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from .. import config
+from ..catalogos import EQUIPOS as PUNTOS_EQUIPO
 from ..db import cursor
-from ..iot_ws import AWS_REGION, IOT_ENDPOINT, generar_iot_websocket_url
-from ..seguridad import ADMINISTRADOR, OPERADOR, auditar, ip_cliente, requiere_nivel
+from ..seguridad import OPERADOR, auditar, ip_cliente, requiere_nivel
 
 router = APIRouter(tags=["Planta y dashboard"])
 lector = requiere_nivel(OPERADOR)          # operador y administrador ven todo el sistema
@@ -37,8 +37,7 @@ def _equipo_id(cur, codigo: str) -> int:
 # ---------------------------------------------------------------- catálogos
 @router.get("/equipos", summary="Equipos monitoreados")
 def equipos(u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.EQUIPOS
     with cursor() as cur:
@@ -48,8 +47,7 @@ def equipos(u: dict = Depends(lector)):
 
 @router.get("/sensores", summary="Catálogo de sensores")
 def sensores(equipo: str = config.EQUIPO_POR_DEFECTO, origen: Fuente | None = None, u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         if origen:
             return [s for s in demo_store.SENSORES if s.get("origen") == origen]
@@ -67,8 +65,7 @@ def sensores(equipo: str = config.EQUIPO_POR_DEFECTO, origen: Fuente | None = No
 
 @router.get("/tipos-falla", summary="Catálogo de fallas que reconoce el modelo")
 def tipos_falla(u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.TIPOS_FALLA
     with cursor() as cur:
@@ -82,8 +79,7 @@ def tipos_falla(u: dict = Depends(lector)):
 @router.get("/lecturas/ultimas", summary="Último valor de cada sensor (tarjetas en tiempo real)")
 def lecturas_ultimas(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                      u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.obtener_lecturas_demo()
     with cursor() as cur:
@@ -106,21 +102,36 @@ def lecturas_serie(
         paso: Literal["1min", "5min", "15min", "1h", "1d"] = "15min",
         fuente: Fuente = "simulado",
         u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
+        import math as _m
         from .. import demo_store
         lista = [t.strip() for t in tags.split(",") if t.strip()]
-        ahora = dt.datetime.now(dt.timezone.utc)
+        ahora = hasta or demo_store._avanzar_reloj_demo()
+        esc = demo_store.SIM_ESTADO.get("escenario", "")
         series = []
-        for t in lista:
+        for idx, t in enumerate(lista):
             base = float(demo_store.VALORES_INICIALES.get(t, 25.0))
             pts = []
-            for h in range(24, 0, -2):
-                pt_t = ahora - dt.timedelta(hours=h)
-                pts.append({"t": pt_t, "prom": round(base, 2), "min": round(base * 0.98, 2), "max": round(base * 1.02, 2)})
+            for p_idx in range(36, -1, -1):
+                pt_t = ahora - dt.timedelta(minutes=p_idx * 20)
+                prog = (36 - p_idx) / 36.0
+                onda = _m.sin(p_idx * 0.45 + idx) * (base * 0.025 if base else 0.05)
+                deriva = 0.0
+                if esc == "filtro" and t == "PRE_dif_filtro_bar":
+                    deriva = 1.05 * (prog ** 1.8)
+                elif esc == "filtro" and t == "CAU_bomba_lpm":
+                    deriva = -48.0 * (prog ** 1.6)
+                elif esc == "caldera" and t == "TEM_son_betum_in":
+                    deriva = -18.0 * prog
+                elif esc == "caldera" and t in ("AMP_vfd_motor_molino", "TOR_vfd_motor_molino"):
+                    deriva = 22.0 * (prog ** 1.4)
+                elif esc == "rodamientos" and t == "VIB_vel_motor_molino":
+                    deriva = 2.2 * (prog ** 1.5)
+                val = round(base + onda + deriva, 2)
+                pts.append({"t": pt_t, "prom": val, "min": round(val * 0.98, 2), "max": round(val * 1.02, 2)})
             unidad_tag = next((s["unidad"] for s in demo_store.SENSORES if s["tag"] == t), "")
             series.append({"tag": t, "unidad": unidad_tag, "puntos": pts})
-        return {"desde": ahora - dt.timedelta(hours=24), "hasta": ahora, "paso": paso, "series": series}
+        return {"desde": ahora - dt.timedelta(hours=12), "hasta": ahora, "paso": paso, "series": series}
 
     lista = [t.strip() for t in tags.split(",") if t.strip()]
     if not lista or len(lista) > 12:
@@ -163,8 +174,7 @@ def lecturas_serie(
 # ---------------------------------------------------------------- estado del equipo
 @router.get("/estado/actual", summary="Estado de operación más reciente")
 def estado_actual(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         return {"ts": dt.datetime.now(dt.timezone.utc).isoformat(), "estado": "produccion", "tipo_asfalto": "convencional"}
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
@@ -178,8 +188,7 @@ def estado_actual(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "sim
 def estado_historial(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                      desde: dt.datetime | None = None, hasta: dt.datetime | None = None,
                      u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.obtener_historial_estado_demo()
     with cursor() as cur:
@@ -208,8 +217,7 @@ def estado_historial(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "
 
 @router.get("/resumen", summary="Indicadores para el encabezado del dashboard")
 def resumen(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         r = demo_store.obtener_resumen_demo()
         r["equipo"] = {"codigo": "MC-01", "nombre": "Molino coloidal HP 240"}
@@ -247,8 +255,7 @@ class Reconocimiento(BaseModel):
 @router.get("/alarmas", summary="Alarmas activas o recientes")
 def alarmas(activas: bool = True, limite: int = Query(100, ge=1, le=500), fuente: Fuente = "simulado",
             u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         return []
     with cursor() as cur:
         cur.execute(
@@ -269,8 +276,7 @@ def alarmas(activas: bool = True, limite: int = Query(100, ge=1, le=500), fuente
 @router.post("/alarmas/{alarma_id}/reconocer", summary="Reconocer una alarma (operador o superior)")
 def reconocer(alarma_id: int, datos: Reconocimiento, request: Request,
               u: dict = Depends(requiere_nivel(OPERADOR))):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         return {"mensaje": "Alarma reconocida (modo demostración)"}
     with cursor() as cur:
         cur.execute(
@@ -290,8 +296,7 @@ def reconocer(alarma_id: int, datos: Reconocimiento, request: Request,
 @router.get("/predicciones/ultimas", summary="Última predicción de cada modelo y horizonte")
 def predicciones_ultimas(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                          u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.obtener_predicciones_demo()
     with cursor() as cur:
@@ -308,6 +313,10 @@ def predicciones_ultimas(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente
 
 # ---------------------------------------------------------------- mantenimientos
 class MantenimientoNuevo(BaseModel):
+    clave_equipo: str | None = Field(
+        default=None, max_length=30,
+        description="Clave del punto de mantención (filtro, radar, caldera, intercambiador, caudalimetro, pt100, rodamientos, planta_completa)",
+    )
     componente: str | None = Field(default=None, max_length=20,
                                    description="Código del componente (F-101, TK-101...). Vacío = toda la línea")
     tipo: Literal["preventivo", "correctivo", "predictivo"]
@@ -317,14 +326,24 @@ class MantenimientoNuevo(BaseModel):
                               description="Códigos de tipos_falla que atiende la intervención")
     alarma_id: int | None = None
     descripcion: str | None = Field(default=None, max_length=2000)
+    fuente: Fuente = "simulado"
+
+
+def _normalizar_fecha_planta(fecha: dt.datetime | None) -> dt.datetime | None:
+    if fecha is None:
+        return None
+    if fecha.tzinfo is None:
+        from zoneinfo import ZoneInfo
+        fecha = fecha.replace(tzinfo=ZoneInfo(config.ZONA_HORARIA))
+    return fecha.astimezone(dt.timezone.utc)
 
 
 @router.get("/mantenimientos", summary="Historial de mantenimientos")
-def mantenimientos(equipo: str = config.EQUIPO_POR_DEFECTO, limite: int = Query(100, ge=1, le=500),
-                   u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
-        return []
+def mantenimientos(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente | None = None,
+                   limite: int = Query(100, ge=1, le=500), u: dict = Depends(lector)):
+    if config.MODO_DEMO:
+        from .. import demo_store
+        return demo_store.obtener_mantenimiento_demo()["bitacora"][:limite]
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         cur.execute(
@@ -336,59 +355,107 @@ def mantenimientos(equipo: str = config.EQUIPO_POR_DEFECTO, limite: int = Query(
                FROM mantpred.mantenimientos m
                LEFT JOIN mantpred.componentes c ON c.id = m.componente_id
                LEFT JOIN mantpred.usuarios us ON us.id = m.registrado_por
-               WHERE m.equipo_id = %s ORDER BY m.fecha_inicio DESC LIMIT %s""", (eq, limite))
+               WHERE m.equipo_id = %s AND (%s::text IS NULL OR m.fuente = %s)
+               ORDER BY m.fecha_inicio DESC, m.id DESC LIMIT %s""", (eq, fuente, fuente, limite))
         return cur.fetchall()
 
 
-@router.post("/mantenimientos", status_code=201, summary="Registrar un mantenimiento (administrador)")
+@router.post("/mantenimientos", status_code=201, summary="Registrar un mantenimiento (operador o administrador)")
 def crear_mantenimiento(datos: MantenimientoNuevo, request: Request, equipo: str = config.EQUIPO_POR_DEFECTO,
-                        u: dict = Depends(requiere_nivel(ADMINISTRADOR))):
-    from .. import db
-    if db.MODO_DEMO:
-        return {"id": 1, "mensaje": "Mantenimiento registrado (modo demostración)"}
-    if datos.fecha_fin and datos.fecha_fin < datos.fecha_inicio:
-        raise HTTPException(422, "fecha_fin no puede ser anterior a fecha_inicio")
+                        u: dict = Depends(requiere_nivel(OPERADOR))):
+    f_inicio = _normalizar_fecha_planta(datos.fecha_inicio)
+    f_fin = _normalizar_fecha_planta(datos.fecha_fin)
+    if f_fin and f_fin < f_inicio:
+        raise HTTPException(422, "La fecha de término no puede ser anterior a la fecha de inicio")
+
+    por_clave = {e["clave"]: e for e in PUNTOS_EQUIPO}
+    componente_cod = (datos.componente or "").strip() or None
+    fallas_lista = list(datos.fallas or [])
+    nombre_comp_demo = "Planta completa"
+
+    if datos.clave_equipo:
+        clave = datos.clave_equipo.strip()
+        if clave == "planta_completa":
+            componente_cod = None
+            nombre_comp_demo = "Planta completa"
+            if not fallas_lista:
+                fallas_lista = [e["falla"] for e in PUNTOS_EQUIPO]
+        elif clave in por_clave:
+            punto = por_clave[clave]
+            componente_cod = componente_cod or punto["componente"]
+            nombre_comp_demo = punto["equipo"]
+            if not fallas_lista:
+                fallas_lista = [punto["falla"]]
+        else:
+            raise HTTPException(422, f"Equipo de mantención desconocido: {clave}")
+    elif componente_cod:
+        coincidencias = [e for e in PUNTOS_EQUIPO if e["componente"] == componente_cod]
+        if coincidencias:
+            nombre_comp_demo = coincidencias[0]["equipo"]
+            if not fallas_lista and len(coincidencias) == 1:
+                fallas_lista = [coincidencias[0]["falla"]]
+        else:
+            nombre_comp_demo = componente_cod
+
+    fallas = sorted(set(fallas_lista))
+    descripcion = (datos.descripcion or "").strip() or None
+
+    if config.MODO_DEMO:
+        from .. import demo_store
+        codigos_validos = {f["codigo"] for f in demo_store.TIPOS_FALLA}
+        faltan_demo = set(fallas) - codigos_validos
+        if faltan_demo:
+            raise HTTPException(422, f"Tipos de falla desconocidos: {', '.join(sorted(faltan_demo))}")
+        reg = demo_store.registrar_mantenimiento_demo(
+            componente_nombre=nombre_comp_demo,
+            codigo_componente=componente_cod,
+            tipo=datos.tipo,
+            fecha_inicio=f_inicio,
+            fecha_fin=f_fin,
+            fallas=fallas,
+            descripcion=descripcion,
+            registrado_por=u.get("nombre") or u.get("email") or "Operador",
+            fuente=datos.fuente,
+        )
+        return {"id": reg["id"], "mensaje": "Mantenimiento registrado", "mantenimiento": reg}
+
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
         componente_id = None
-        if datos.componente:
+        if componente_cod:
             cur.execute("SELECT id FROM mantpred.componentes WHERE codigo = %s AND equipo_id = %s",
-                        (datos.componente, eq))
+                        (componente_cod, eq))
             fila = cur.fetchone()
             if fila is None:
-                raise HTTPException(422, f"Componente desconocido: {datos.componente}")
+                raise HTTPException(422, f"Componente desconocido: {componente_cod}")
             componente_id = fila["id"]
-        fallas = sorted(set(datos.fallas))
         cur.execute("SELECT id, codigo FROM mantpred.tipos_falla WHERE codigo = ANY(%s)", (fallas,))
         ids_falla = {f["codigo"]: f["id"] for f in cur.fetchall()}
         faltan = set(fallas) - set(ids_falla)
         if faltan:
             raise HTTPException(422, f"Tipos de falla desconocidos: {', '.join(sorted(faltan))}")
         cur.execute(
-            """INSERT INTO mantpred.mantenimientos (equipo_id, registrado_por, componente_id, tipo,
-                                                    alarma_id, fecha_inicio, fecha_fin, descripcion)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            """INSERT INTO mantpred.mantenimientos
+                   (equipo_id, registrado_por, componente_id, tipo, alarma_id,
+                    fecha_inicio, fecha_fin, descripcion, fuente, origen_registro)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'dashboard') RETURNING id""",
             (eq, u["id"], componente_id, datos.tipo, datos.alarma_id,
-             datos.fecha_inicio, datos.fecha_fin, datos.descripcion))
+             f_inicio, f_fin, descripcion, datos.fuente))
         nuevo = cur.fetchone()["id"]
         if ids_falla:
             cur.execute("""INSERT INTO mantpred.mantenimiento_fallas (mantenimiento_id, tipo_falla_id)
                            SELECT %s, unnest(%s::smallint[])""", (nuevo, list(ids_falla.values())))
-        auditar(cur, u["id"], u["email"], ip_cliente(request), "mantenimiento_registrado", f"id {nuevo}")
+        auditar(cur, u["id"], u["email"], ip_cliente(request), "mantenimiento_registrado",
+                f"id {nuevo} ({datos.tipo})")
+
+    if datos.fuente == "simulado":
+        try:
+            import threading
+            from ..simulador import simulador
+            if simulador.reloj is not None:
+                t_ref = max(simulador.reloj.to_pydatetime(), f_inicio)
+                threading.Thread(target=simulador._escribir_bitacora, args=(t_ref,), daemon=True).start()
+        except Exception:
+            pass
+
     return {"id": nuevo, "mensaje": "Mantenimiento registrado"}
-
-
-@router.get("/iot/ws-url", summary="URL pre-firmada WebSocket para conexión MQTT en tiempo real")
-def iot_ws_url(u: dict = Depends(lector)):
-    """Genera una URL pre-firmada SigV4 para conectar al broker AWS IoT Core via WebSockets."""
-    url = generar_iot_websocket_url()
-    return {
-        "disponible": bool(url),
-        "url": url,
-        "endpoint": IOT_ENDPOINT,
-        "region": AWS_REGION,
-        "topics": {
-            "telemetria": "planta/asfalto/molino/telemetria",
-            "predicciones": "planta/asfalto/molino/predicciones",
-        },
-    }

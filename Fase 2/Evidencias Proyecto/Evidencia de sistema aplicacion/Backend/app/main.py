@@ -43,6 +43,17 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def deshabilitar_cache_estaticos(request: Request, call_next):
+    response = await call_next(request)
+    ruta = request.url.path
+    if ruta in ("/", "/index.html", "/login.html") or ruta.endswith((".html", ".js", ".css")):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 @app.exception_handler(PoolTimeout)
 @app.exception_handler(psycopg.OperationalError)
 async def base_no_disponible(request: Request, exc: Exception):
@@ -53,7 +64,7 @@ async def base_no_disponible(request: Request, exc: Exception):
 
 @app.get("/api/salud", tags=["Sistema"], summary="Estado de la API y de la base de datos")
 def salud():
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         import datetime
         return {"api": "ok", "base_de_datos": "modo_demostracion", "hora_bd": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     with db.cursor() as cur:

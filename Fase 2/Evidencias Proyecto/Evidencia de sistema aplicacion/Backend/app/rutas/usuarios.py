@@ -47,7 +47,8 @@ def _sin_demo():
 def listar(admin: dict = Depends(solo_admin)):
     if config.MODO_DEMO:
         from .. import demo_store
-        return [{**u, "bloqueado": False, "ultimo_acceso": None, "creado_en": None}
+        return [{**{k: v for k, v in u.items() if k != "password_hash"},
+                 "bloqueado": False, "ultimo_acceso": None, "creado_en": None}
                 for u in demo_store.USUARIOS.values()]
     with cursor() as cur:
         cur.execute(_SELECT + " ORDER BY r.nivel DESC, u.nombre")

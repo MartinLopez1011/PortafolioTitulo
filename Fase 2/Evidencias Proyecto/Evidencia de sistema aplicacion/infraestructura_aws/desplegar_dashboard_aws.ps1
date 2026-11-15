@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # Despliegue del dashboard en AWS (Learner Lab): backend + web en EC2, HTTPS con
 # API Gateway y Lambda qla-persistencia (DynamoDB Stream -> backend -> RDS).
 #
@@ -16,18 +16,18 @@
 # Los secretos (clave de la base, JWT, clave de ingesta) NO se muestran en pantalla.
 #
 # NOTA CI/CD: desde que existe .github/workflows/cd.yml, las actualizaciones del backend se
-# despliegan automáticamente como contenedor Docker (ECR qla-backend) al hacer merge a main.
+# despliegan como contenedor Docker (ECR qla-backend) al ejecutar manualmente ese workflow (workflow_dispatch).
 # El primer deploy desactiva el servicio systemd "qla". No usar "-Accion actualizar" después
 # de esa migración (ver docs/CICD.md). Este script sigue siendo válido para crear la infraestructura.
 # ==============================================================================
 param(
     [ValidateSet("desplegar", "actualizar", "estado", "iniciar", "detener")]
     [string]$Accion = "desplegar",
-    [string]$BucketName = "qla-molino-nicolas-2026",
+    [string]$BucketName = "backup-planta-asfalto-molino-ml",
     [string]$ArchivoRds = "$HOME\qla_rds.env",
     [string]$InstanciaRds = "qla-mantpred",
     [string]$TipoInstancia = "t3.small",
-    [string]$Region = "us-east-1"
+    [string]$Region = "us-east-2"
 )
 
 $ErrorActionPreference = "Continue"   # los errores se revisan con $LASTEXITCODE
