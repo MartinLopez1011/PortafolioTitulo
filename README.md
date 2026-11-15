@@ -6,7 +6,7 @@ Su propósito es anticipar fallas operacionales y fallas de instrumentación, de
 
 ---
 
-## 👥 Integrantes del Proyecto
+## Integrantes del Proyecto
 
 - **Franco Carvajal**
 - **Martín López**
@@ -16,7 +16,7 @@ Su propósito es anticipar fallas operacionales y fallas de instrumentación, de
 
 ---
 
-## 🎯 Objetivos e Impacto
+## Objetivos e Impacto
 
 - **Económico:** Reducir costos por detenciones no planificadas y optimizar intervenciones de mantenimiento.
 - **Operacional:** Incrementar la disponibilidad del molino MC-01 y equipos asociados mediante diagnóstico y predicción multi-horizonte.
@@ -25,7 +25,7 @@ Su propósito es anticipar fallas operacionales y fallas de instrumentación, de
 
 ---
 
-## 🏗️ Arquitectura General (`us-east-2`)
+##  Arquitectura General 
 
 El sistema opera sobre tres rutas de datos paralelas alimentadas por el contrato canónico de **31 variables**:
 
@@ -49,7 +49,7 @@ Sensores / Simulador MC-01
 
 ---
 
-## 📂 Estructura del Repositorio
+## Estructura del Repositorio
 
 - **[`Fase 1/`](Fase%201):** Planificación, definición del proyecto (`1.5_GuiaEstudiante_Fase 1_*`), autoevaluaciones y [`Presentacion_Fase_1.pdf`](Fase%201/Evidencias%20Grupales/Presentacion_Fase_1.pdf).
 - **[`Fase 2/`](Fase%202):**
@@ -75,7 +75,7 @@ Sensores / Simulador MC-01
 
 ---
 
-## 🚀 Inicio Rápido (Modo Demo Local sin BD)
+## Inicio Rápido (Modo Demo Local sin BD)
 
 Para levantar el backend y el dashboard localmente con datos en memoria:
 
@@ -92,7 +92,7 @@ Luego abrir `http://127.0.0.1:8000` (credenciales demo: `admin@demo.qla.cl` / `C
 
 ---
 
-## 📚 Documentación Detallada
+## Documentación Detallada
 
 - [Arquitectura e índice del Sistema Aplicación](Fase%202/Evidencias%20Proyecto/README.md)
 - [Backend API y Dashboard Web](Fase%202/Evidencias%20Proyecto/Evidencia%20de%20sistema%20aplicacion/Backend/README.md)
