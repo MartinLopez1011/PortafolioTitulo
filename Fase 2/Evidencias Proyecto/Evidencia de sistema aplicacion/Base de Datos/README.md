@@ -6,9 +6,9 @@ Esquema PostgreSQL del sistema de mantenimiento predictivo del molino coloidal M
 Responsable: Nicolás (Ingeniería de datos y backend)
 Versión: 4.1 — basada en el esquema original de Franco Carvajal (v1/v2 en Supabase, migrado a RDS en v3)
 
-![Diagrama entidad-relación v4](diagrama/bd_mantpred_v4.png)
+![Diagrama entidad-relación v4.1](diagrama/bd_mantpred_v4_1_compacto.png)
 
-- Diagrama en alta resolución: [`diagrama/bd_mantpred_v4.pdf`](diagrama/bd_mantpred_v4.pdf) · [`.svg`](diagrama/bd_mantpred_v4.svg)
+- Diagrama en alta resolución: [`completo (PDF)`](diagrama/bd_mantpred_v4_1_completo.pdf) · [`completo (SVG)`](diagrama/bd_mantpred_v4_1_completo.svg) · [`compacto (PDF)`](diagrama/bd_mantpred_v4_1_compacto.pdf)
 - Descripción de cada tabla y columna: [`DICCIONARIO_DATOS.md`](DICCIONARIO_DATOS.md)
 
 ## Contenido
