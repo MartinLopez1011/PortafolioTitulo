@@ -1,10 +1,10 @@
-# 📚 Evidencias del Proyecto - Mantenimiento Predictivo Industrial
+# Evidencias del Proyecto - Mantenimiento Predictivo Industrial
 
 Carpeta de evidencias del desarrollo e implementación del **Sistema de Mantenimiento Predictivo en la Industria** para Química Latinoamericana S.A. Contiene documentación técnica, código de aplicaciones, modelos de Machine Learning, configuración de infraestructura en AWS e información de campo.
 
 ---
 
-## 📂 Estructura General
+## Estructura General
 
 ```
 Evidencias Proyecto/
@@ -14,7 +14,7 @@ Evidencias Proyecto/
 
 ---
 
-## 📄 Evidencia de Documentación
+## Evidencia de Documentación
 
 Carpeta con documentos clave del proyecto generados durante la fase de planificación y análisis:
 
@@ -29,11 +29,11 @@ Carpeta con documentos clave del proyecto generados durante la fase de planifica
 
 ---
 
-## 💻 Evidencia de Sistema Aplicación
+## Evidencia de Sistema Aplicación
 
 Carpeta principal con el código implementado, modelos de IA y configuración de infraestructura. Contiene 9 subcarpetas organizadas por componente:
 
-### 1. 🔌 **Backend**
+### 1. **Backend**
 **Ubicación:** `Evidencia de sistema aplicacion/Backend/`
 
 Aplicación backend desarrollada con **FastAPI** que proporciona APIs REST/WebSocket, autenticación, control de simulación y los archivos estáticos de la web.
@@ -66,7 +66,7 @@ Aplicación backend desarrollada con **FastAPI** que proporciona APIs REST/WebSo
 
 ---
 
-### 2. 🗄️ **Base de Datos**
+### 2. **Base de Datos**
 **Ubicación:** `Evidencia de sistema aplicacion/Base de Datos/`
 
 Scripts y esquema PostgreSQL v4.1 (esquema `mantpred`) para **Amazon RDS (`qla-mantpred`, `us-east-2`)** o Supabase.
@@ -88,7 +88,7 @@ Scripts y esquema PostgreSQL v4.1 (esquema `mantpred`) para **Amazon RDS (`qla-m
 
 ---
 
-### 3. 🤖 **Modelo 1 - Diagnóstico**
+### 3. **Modelo 1 - Diagnóstico**
 **Ubicación:** `Evidencia de sistema aplicacion/Modelo 1 - Diagnóstico/`
 
 Notebook Jupyter: `Modelos_Fallas_Molino_QLA.ipynb`
@@ -105,7 +105,7 @@ Notebook Jupyter: `Modelos_Fallas_Molino_QLA.ipynb`
 
 ---
 
-### 4. 📊 **Modelo 2 - Vigilancia**
+### 4. **Modelo 2 - Vigilancia**
 **Ubicación:** `Evidencia de sistema aplicacion/Modelo 2 - Vigilancia/`
 
 Notebook Jupyter: `Autoencoder_Molino_QLA.ipynb`
@@ -122,7 +122,7 @@ Notebook Jupyter: `Autoencoder_Molino_QLA.ipynb`
 
 ---
 
-### 5. 🔮 **Modelo 3 - Predicción**
+### 5. **Modelo 3 - Predicción**
 **Ubicación:** `Evidencia de sistema aplicacion/Modelo 3 - Predicción/`
 
 Notebook Jupyter: `Prediccion_Fallas_Molino_QLA.ipynb`
@@ -139,14 +139,14 @@ Notebook Jupyter: `Prediccion_Fallas_Molino_QLA.ipynb`
 
 ---
 
-### 6. 📡 **Edge Gateway**
+### 6. **Edge Gateway**
 **Ubicación:** `Evidencia de sistema aplicacion/edge_gateway/`
 
 Simulador de dispositivo Edge (`simulador_edge.py`) que envía lecturas de sensores a la URL de inferencia configurada en `LAMBDA_URL`.
 
 ---
 
-### 7. ☁️ **Infraestructura AWS**
+### 7. **Infraestructura AWS**
 **Ubicación:** `Evidencia de sistema aplicacion/infraestructura_aws/`
 
 Configuración, scripts IaC (Linux y PowerShell) y flujos CI/CD en AWS (`us-east-2`).
@@ -172,7 +172,7 @@ Configuración, scripts IaC (Linux y PowerShell) y flujos CI/CD en AWS (`us-east
 
 ---
 
-### 8. 🚀 **Lambda Inferencia**
+### 8. **Lambda Inferencia**
 **Ubicación:** `Evidencia de sistema aplicacion/lambda_inferencia/`
 
 Función Lambda AWS contenerizada para ejecutar los 3 modelos en tiempo real sobre telemetría del molino.
@@ -186,14 +186,14 @@ Función Lambda AWS contenerizada para ejecutar los 3 modelos en tiempo real sob
 
 ---
 
-### 9. 📊 **Dataset Simulado**
+### 9. **Dataset Simulado**
 **Ubicación:** `Evidencia de sistema aplicacion/Dataset Simulado/`
 
 Datos sintéticos realistas generados para entrenar, validar y reproducir el comportamiento anual del molino (`Dataset_Molino_QLA_Realista.zip`).
 
 ---
 
-## 🔗 Arquitectura General
+## Arquitectura General
 
 ```
 Sensores / Simulador
@@ -208,7 +208,7 @@ Navegador (Dashboard JS + WS) ◄── API Gateway / EC2 (Backend FastAPI) ─�
 
 ---
 
-## 🚀 Cómo Usar
+## Cómo Usar
 
 ### Para explorar la documentación:
 ```
@@ -249,7 +249,7 @@ python probar_arquitectura_completa.py
 
 ---
 
-## 📌 Notas Importantes
+## Notas Importantes
 
 - **Seguridad:** Nunca subir archivos `.env`, credenciales `~/.aws/credentials`, llaves ni certificados al repositorio.
 - **Variables de entorno:** Usar plantillas `.env.example` o configurar `secrets` / `vars` de GitHub Actions para CI/CD.
@@ -259,7 +259,7 @@ python probar_arquitectura_completa.py
 
 ---
 
-## 📞 Contacto & Soporte
+## Contacto & Soporte
 
 Para preguntas sobre estructura o contenido, revisar documentos en `Evidencia de documentación/` o contactar al equipo de desarrollo.
 

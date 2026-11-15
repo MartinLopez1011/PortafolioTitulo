@@ -25,7 +25,7 @@ Su propósito es anticipar fallas operacionales y fallas de instrumentación, de
 
 ---
 
-##  Arquitectura General 
+## Arquitectura General
 
 El sistema opera sobre tres rutas de datos paralelas alimentadas por el contrato canónico de **31 variables**:
 
@@ -66,7 +66,7 @@ Sensores / Simulador MC-01
 
 ---
 
-## 🛠️ Stack Tecnológico
+## Stack Tecnológico
 
 - **Backend & Frontend:** Python 3.12, FastAPI, Uvicorn, PostgreSQL (`psycopg`), JWT, bcrypt, HTML/CSS/JavaScript, Apache ECharts.
 - **Machine Learning & Datos:** scikit-learn, LightGBM, TensorFlow/Keras, pandas, NumPy, pyarrow, joblib.
