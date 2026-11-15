@@ -103,6 +103,8 @@ jobs:
               ;;
           esac
 
+          RDS_STATUS=$(aws rds describe-db-instances --db-instance-identifier "$RDS_ID" \
+            --query "DBInstances[0].DBInstanceStatus" --output text 2>/dev/null || echo "no-existe")
           EC2_STATE=$(aws ec2 describe-instances --instance-ids "$IID" --query "Reservations[0].Instances[0].State.Name" --output text)
           IP=$(aws ec2 describe-instances --instance-ids "$IID" --query "Reservations[0].Instances[0].PublicIpAddress" --output text)
           API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)

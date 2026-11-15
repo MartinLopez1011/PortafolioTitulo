@@ -39,6 +39,7 @@ import numpy as np
 import pandas as pd
 
 from . import config, persistencia
+from .catalogos import EQUIPOS, SQL_INTERVENCIONES
 from .db import cursor
 
 log = logging.getLogger("simulador")
@@ -316,7 +317,7 @@ class Simulador:
         b["AMP_vib_motor_molino"] = 4 + 0.64 * b["VIB_vel_motor_molino"]
 
     @staticmethod
-    def _lectura(fila: pd.Series) -> dict:
+    def _lectura(fila: pd.Series | dict) -> dict:
         lect = {k: round(float(v), 4) for k, v in fila.items()
                 if k not in ("timestamp", "ESTADO_operacion", "TIPO_asfalto", "LABEL_Estado_Planta")}
         lect["ESTADO_operacion"] = str(fila["ESTADO_operacion"])
@@ -328,12 +329,19 @@ class Simulador:
         lect = self._lectura(fila)
         epoch = int(fila["timestamp"].timestamp())
         if self.publicar_modo == "iot":
-            payload = {"equipo_id": EQUIPO_IOT, "timestamp": epoch, "origen": "simulador",
-                       "lectura_actual": {k: lect[k] for k in SENSORES_29 + ["ESTADO_operacion", "TIPO_asfalto"]
-                                          if k in lect}}
+            lect_31 = {k: lect[k] for k in SENSORES_29 + ["ESTADO_operacion", "TIPO_asfalto"] if k in lect}
+            lect_31["es_plastomerico"] = 1 if lect_31.get("TIPO_asfalto") == "Plastomerico" else 0
+            lect_31["en_limpieza"] = 1 if lect_31.get("ESTADO_operacion") == "Limpieza" else 0
+            payload = {
+                "equipo_id": EQUIPO_IOT,
+                "timestamp": epoch,
+                "origen": "simulador",
+                **lect_31,
+                "lectura_actual": lect_31,
+            }
             self._cliente("iot-data").publish(topic=TOPIC, qos=1, payload=json.dumps(payload))
             with self._lock:
-                self._pendientes[epoch] = (payload["lectura_actual"], time.monotonic())
+                self._pendientes[epoch] = (lect_31, time.monotonic())
             extras = {k: v for k, v in lect.items() if k not in SENSORES_29 and k not in
                       ("ESTADO_operacion", "TIPO_asfalto")}
             with cursor() as cur:
@@ -448,7 +456,6 @@ class Simulador:
 
     # ------------------------------------------------------------------ bitácora y ventana de la Lambda
     def _bitacora_en(self, cur, t: dt.datetime) -> dict:
-        from .rutas.pantallas import EQUIPOS, SQL_INTERVENCIONES   # mismo criterio que la pantalla de Mantenimiento
         eq = persistencia._catalogos(cur)["equipos"][config.EQUIPO_POR_DEFECTO]
         res = {}
         for e in EQUIPOS:
@@ -515,7 +522,7 @@ class Simulador:
             previo = self.df[(self.df["timestamp"] >= t - pd.Timedelta(hours=HORAS_PRECARGA))
                              & (self.df["timestamp"] < t)]
             with cursor() as cur:
-                for _, fila in previo.iterrows():
+                for fila in previo.to_dict("records"):
                     persistencia.guardar_registro(cur, {"timestamp": int(fila["timestamp"].timestamp()),
                                                         "lectura": self._lectura(fila)},
                                                   "simulado", config.EQUIPO_POR_DEFECTO)
@@ -529,18 +536,24 @@ class Simulador:
                 except Exception as e:
                     self.aviso = ("No se pudo reiniciar la Lambda de inferencia; la predicción puede tardar en "
                                   f"ajustarse a la nueva fecha ({type(e).__name__})")
-            self.ultimo_error = None
+            with self._lock:
+                self.ultimo_error = None
+                self._preparado = True
         except Exception as e:
-            self.ultimo_error = f"Al preparar la fecha: {type(e).__name__}: {e}"[:300]
+            with self._lock:
+                self._preparado = False
+                self.corriendo = False
+                self.ultimo_error = f"Al preparar la fecha: {type(e).__name__}: {e}"[:300]
             log.exception("Simulador: error al preparar")
         finally:
-            self.preparando = None
+            with self._lock:
+                self.preparando = None
 
     def _saltar(self, t: pd.Timestamp, motivo: str):
         with self._lock:
             self._pendientes.clear()        # lo publicado antes del salto ya no corresponde
-        self.preparando = motivo
-        self._preparado = True
+            self.preparando = motivo
+            self._preparado = False
         threading.Thread(target=self._preparar, args=(t,), daemon=True).start()
 
     # ------------------------------------------------------------------ API pública

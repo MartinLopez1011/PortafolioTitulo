@@ -17,8 +17,7 @@
       ],
       "Resource": [
         "arn:aws:ecr:__REGION__:__ACCOUNT__:repository/qla-backend",
-        "arn:aws:ecr:__REGION__:__ACCOUNT__:repository/qla-molino-inferencia",
-        "arn:aws:ecr:__REGION__:__ACCOUNT__:repository/qla-inferencia"
+        "arn:aws:ecr:__REGION__:__ACCOUNT__:repository/qla-molino-inferencia"
       ]
     },
     {
@@ -26,8 +25,7 @@
       "Effect": "Allow",
       "Action": ["lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:UpdateFunctionCode", "lambda:InvokeFunction"],
       "Resource": [
-        "arn:aws:lambda:__REGION__:__ACCOUNT__:function:qla-molino-inferencia",
-        "arn:aws:lambda:__REGION__:__ACCOUNT__:function:qla-inferencia"
+        "arn:aws:lambda:__REGION__:__ACCOUNT__:function:qla-molino-inferencia"
       ]
     },
     {

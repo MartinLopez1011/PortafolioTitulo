@@ -1,132 +1,153 @@
 # Backend – API de Mantenimiento Predictivo QLA
 
-API REST en **FastAPI** que conecta la base de datos de Supabase (esquema `mantpred`) con la web del sistema,
-y la **web** (login y dashboard) que se sirve desde la misma API. Incluye inicio de sesión con 4 niveles de acceso.
-
-Responsable: Nicolás (Ingeniería de datos y backend)
-Versión: 0.2.0 – octubre 2026 (0.1.0 API; 0.2.0 agrega la web)
+API REST y WebSocket en **FastAPI** que conecta la base PostgreSQL (Amazon RDS / Supabase, esquema `mantpred`) con la web del sistema,
+servida como archivos estáticos desde la misma API. Incluye autenticación JWT con **2 roles de acceso** (`operador` y `administrador`)
+y un modo de demostración en memoria (`MODO_DEMO=1`).
 
 ## Estructura
 
 ```
 Backend/
 ├── app/
-│   ├── main.py          # crea la API, CORS, manejo de errores y /api/salud
-│   ├── config.py        # lee el archivo .env
+│   ├── main.py          # crea la API, CORS, sin caché en estáticos, errores y /api/salud
+│   ├── config.py        # lee el archivo .env y valida variables obligatorias
 │   ├── db.py            # pool de conexiones a PostgreSQL
-│   ├── seguridad.py     # contraseñas (bcrypt), tokens (JWT), roles y auditoría
+│   ├── seguridad.py     # contraseñas (bcrypt), tokens (JWT), roles, ingesta y auditoría
+│   ├── catalogos.py     # equipos/componentes y consulta común de última intervención
+│   ├── persistencia.py  # inserción de lecturas/predicciones y evaluación de reglas de alarma
+│   ├── simulador.py     # simulador controlable del año 2026 hacia IoT Core y DynamoDB
+│   ├── demo_store.py    # datos y simulación en memoria para MODO_DEMO=1
 │   └── rutas/
 │       ├── auth.py      # login, /me, cambio de contraseña
 │       ├── usuarios.py  # gestión de usuarios y auditoría (solo administrador)
-│       └── planta.py    # sensores, lecturas, estado, alarmas, predicciones, mantenimientos
-├── web/                 # login y dashboard (HTML, CSS y JavaScript, sin instalación extra)
+│       ├── planta.py    # equipos, sensores, lecturas, estado, alarmas, predicciones y mantenimientos
+│       ├── pantallas.py # respuestas agregadas para Proceso, Predicción, Alarmas, Salud y Mantenimiento
+│       ├── ingesta.py   # /ingesta/registro, /telemetria y WebSocket /ws/telemetria
+│       └── simulacion.py# control del simulador (HU-17 a HU-19)
+├── web/                 # login y dashboard (HTML, CSS y JavaScript sin compilación)
 │   ├── login.html, index.html
 │   ├── css/app.css
 │   ├── js/api.js, js/login.js, js/app.js
 │   ├── js/vendor/echarts.min.js   # gráficos (Apache ECharts 5.5.1, licencia Apache 2.0)
-│   └── img/                       # logo de QLA
+│   └── img/logo-qla.png
+├── tests/               # pruebas unitarias y de rutas (pytest)
+├── Dockerfile
 ├── requirements.txt
-├── .env.example         # plantilla de configuración (copiar como .env)
-└── .gitignore           # evita subir .env
+├── requirements-dev.txt
+├── pytest.ini
+├── ruff.toml
+└── .env.example         # plantilla de configuración (copiar como .env)
 ```
 
-## Cómo ejecutarlo (Windows)
+*(El `.gitignore` del repositorio evita subir archivos `.env` y cachés).*
 
-```
+## Cómo ejecutarlo
+
+**Linux / macOS:**
+
+```bash
 cd "Fase 2/Evidencias Proyecto/Evidencia de sistema aplicacion/Backend"
 python -m pip install -r requirements.txt
+cp .env.example .env
+# Completar JWT_SECRET (y DATABASE_URL + CLAVE_INGESTA, o MODO_DEMO=1 + DEMO_CLAVE)
+python -m uvicorn app.main:app --reload
+```
+
+**Windows (PowerShell):**
+
+```powershell
+cd "Fase 2\Evidencias Proyecto\Evidencia de sistema aplicacion\Backend"
+python -m pip install -r requirements.txt
 Copy-Item .env.example .env
-notepad .env          # completar DATABASE_URL y JWT_SECRET
+notepad .env
 python -m uvicorn app.main:app --reload
 ```
 
 - **Web del sistema:** http://127.0.0.1:8000
 - **Documentación de la API:** http://127.0.0.1:8000/docs
 
-- `DATABASE_URL`: la misma cadena *Session pooler* de `Base de Datos/.env`.
-- `JWT_SECRET`: clave aleatoria para firmar las sesiones. Generarla con
+Variables clave en `.env`:
+- `DATABASE_URL`: cadena de conexión a Amazon RDS o Supabase (no requerida si `MODO_DEMO=1`).
+- `JWT_SECRET`: clave aleatoria (>= 32 caracteres) para firmar las sesiones:
   `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+- `CLAVE_INGESTA`: clave compartida (>= 24 caracteres) exigida en `X-Clave-Ingesta` por `/api/ingesta/registro` y `/api/telemetria`.
+- `MODO_DEMO` / `DEMO_CLAVE`: `MODO_DEMO=1` arranca sin PostgreSQL usando datos de demostración en memoria (`DEMO_CLAVE` >= 8 caracteres).
 
 ## La web
 
 | Pestaña | Qué muestra | Quién la ve |
 | --- | --- | --- |
-| Panel | Estado del molino, sensores fuera de rango, alarmas, operación de las últimas 24 h, predicciones y el panel de instrumentos agrupado por equipo según el recorrido del proceso | Todos |
-| Tendencias | Hasta 6 sensores en gráficos con eje de tiempo común (24 h a 14 días), su rango normal y la franja de estados del molino | Todos |
-| Alarmas | Alarmas activas o todas; botón para reconocer con comentario | Todos; reconocer desde operador |
-| Mantenimiento | Historial; formulario para registrar intervenciones | Todos; registrar desde supervisor |
-| Usuarios | Crear usuarios, cambiar rol, activar o desactivar, asignar contraseña temporal y registro de accesos | Administrador |
+| Proceso | Diagrama P&ID interactivo, estado del molino, medidores, tendencias, diagnóstico actual, alarmas activas, riesgo de falla e indicadores del día | Todos |
+| Predicción | Semáforo de riesgo por falla y horizonte + evolución del riesgo (`HU-14`) | Todos |
+| Alarmas | Alarmas activas e historial; botón para reconocer con comentario | Todos |
+| Salud del equipo | Error medio diario de reconstrucción del autoencoder y trazabilidad de anomalías | Todos |
+| Mantenimiento | Estado por equipo, bitácora y formulario para registrar intervenciones | Todos |
+| Simulación (demo) | Controles de reproducción, saltos a fallas e inyección de escenarios 2026 (`HU-17` a `HU-19`) | Todos |
+| Usuarios | Crear, modificar o eliminar usuarios, asignar contraseñas temporales y ver auditoría de accesos | Administrador |
 
-- En el primer ingreso (o tras una contraseña temporal) la web pide crear una contraseña nueva.
-- El selector **Datos simulados / Datos reales** cambia la fuente de todas las vistas.
-- El panel se actualiza cada minuto.
-- La sesión se guarda solo en la pestaña del navegador (se cierra al cerrar la pestaña).
+- En el primer ingreso (o tras una contraseña temporal) la web exige crear una contraseña nueva.
+- El selector de fuente permite alternar entre datos **simulados** y **reales**.
+- La actualización en vivo usa WebSocket (`WS /api/ws/telemetria`) cuando está disponible y respaldo por sondeo HTTP.
+- La sesión se guarda en `sessionStorage` de la pestaña del navegador.
 
 ## Roles
 
 | Rol | Nivel | Puede |
 | --- | --- | --- |
-| visualizador | 1 | Ver dashboard, lecturas, alarmas, predicciones y mantenimientos |
-| operador | 2 | Lo anterior + reconocer alarmas con comentario |
-| supervisor | 3 | Lo anterior + registrar mantenimientos |
-| administrador | 4 | Todo + crear, modificar y desbloquear usuarios; ver auditoría |
+| operador | 2 | Ver todas las vistas de planta/modelos, reconocer alarmas, registrar mantenimientos y operar el simulador |
+| administrador | 4 | Todo lo del operador + crear, editar, eliminar y restablecer usuarios; ver auditoría |
 
 ## Seguridad implementada
 
-- Contraseñas guardadas con **bcrypt**; nunca en texto plano.
-- Sesión con **token JWT** (HS256) que dura 8 horas (`JWT_MINUTOS`).
-- **Cambio de contraseña obligatorio** en el primer ingreso: hasta hacerlo, solo funcionan `/auth/me` y `/auth/cambiar-clave`.
+- Contraseñas guardadas con **bcrypt**; nunca en texto plano ni devueltas por la API.
+- Sesión con **token JWT** (HS256) de 8 horas por defecto (`JWT_MINUTOS`).
+- **Cambio de contraseña obligatorio** en el primer ingreso o tras un restablecimiento temporal.
 - Contraseñas nuevas de 8 a 72 caracteres, con letras y números.
-- **Bloqueo de 15 minutos** tras 5 intentos fallidos. El administrador puede desbloquear asignando una clave temporal.
-- Mensaje genérico ante error de login (no revela si el correo existe).
-- Un usuario desactivado pierde el acceso de inmediato, aunque tenga un token vigente.
-- **Auditoría**: cada login, intento fallido, bloqueo, cambio de clave y acción de administración queda en `auditoria_accesos`.
-- CORS limitado a los orígenes de `CORS_ORIGINS`.
-- Si Supabase está pausado o sin conexión, la API responde 503 con un mensaje claro y se recupera sola.
+- **Bloqueo temporal** de `MINUTOS_BLOQUEO` (15 min) tras `MAX_INTENTOS` (5) fallidos; el administrador puede desbloquear con clave temporal.
+- Mensaje genérico y verificación constante ante errores de login.
+- Un usuario desactivado pierde el acceso en la siguiente petición, aunque conserve un JWT vigente.
+- **Auditoría**: accesos, intentos fallidos, bloqueos, cambios de clave y acciones administrativas quedan en `auditoria_accesos`.
+- Ingesta protegida mediante comparación en tiempo constante (`hmac.compare_digest`) sobre `X-Clave-Ingesta`.
+- CORS limitado a los orígenes configurados en `CORS_ORIGINS`.
+- Si PostgreSQL no responde, la API responde `503` y se recupera sola cuando la base vuelve.
 
 ## Endpoints (prefijo `/api`)
 
-| Método | Ruta | Rol mínimo | Para qué |
+| Método | Ruta | Acceso / Rol mínimo | Para qué |
 | --- | --- | --- | --- |
-| GET | /salud | – | Estado de la API y de la base |
-| POST | /auth/login | – | Iniciar sesión (correo y clave) |
-| GET | /auth/me | con sesión | Datos del usuario |
-| POST | /auth/cambiar-clave | con sesión | Cambiar la contraseña propia |
-| GET | /resumen | visualizador | Indicadores del encabezado del dashboard |
-| GET | /lecturas/ultimas | visualizador | Último valor de cada sensor (tarjetas) |
-| GET | /lecturas/serie | visualizador | Serie de tiempo para gráficos (paso 1 min a 1 día) |
-| GET | /estado/actual, /estado/historial | visualizador | Modo de operación y sus tramos |
-| GET | /equipos, /sensores, /tipos-falla | visualizador | Catálogos |
-| GET | /alarmas | visualizador | Alarmas activas o recientes |
+| GET | /salud | público | Estado de la API y conexión a base de datos |
+| POST | /auth/login | público | Iniciar sesión y obtener JWT |
+| GET | /auth/me | con sesión | Datos del usuario autenticado |
+| POST | /auth/cambiar-clave | con sesión | Cambiar contraseña propia |
+| GET | /proceso, /prediccion, /prediccion/evolucion | operador | Datos agregados para Proceso y Predicción |
+| GET | /alarmas/pantalla, /salud-equipo, /mantenimiento/pantalla | operador | Vistas de Alarmas, Salud y Mantenimiento |
+| GET | /resumen | operador | Indicadores del encabezado del dashboard |
+| GET | /lecturas/ultimas, /lecturas/serie | operador | Últimas lecturas y series temporales |
+| GET | /estado/actual, /estado/historial | operador | Modo de operación y sus tramos |
+| GET | /equipos, /sensores, /tipos-falla | operador | Catálogos |
+| GET | /alarmas | operador | Alarmas activas o recientes |
 | POST | /alarmas/{id}/reconocer | operador | Reconocer alarma con comentario |
-| GET | /predicciones/ultimas | visualizador | Última predicción por modelo y horizonte |
-| GET / POST | /mantenimientos | visualizador / supervisor | Ver y registrar mantenimientos |
-| GET / POST / PATCH | /usuarios | administrador | Gestión de usuarios |
+| GET | /predicciones/ultimas | operador | Última predicción por modelo y horizonte |
+| GET / POST | /mantenimientos | operador | Ver y registrar mantenimientos |
+| GET / POST | /simulacion, /simulacion/opciones | operador | Consultar y controlar el simulador |
+| POST | /ingesta/registro, /telemetria | `X-Clave-Ingesta` | Recibir inferencias o telemetría en vivo desde AWS |
+| WS | /ws/telemetria?token=... | con sesión (JWT) | Canal WebSocket hacia los navegadores |
+| GET / POST / PATCH / DELETE | /usuarios | administrador | Gestión de usuarios |
 | POST | /usuarios/{id}/restablecer-clave | administrador | Clave temporal y desbloqueo |
 | GET | /usuarios/auditoria | administrador | Registro de accesos |
 
-Todas las consultas de datos aceptan `fuente=simulado` (por defecto) o `fuente=real`.
+Las consultas operacionales aceptan `fuente=simulado` (por defecto) o `fuente=real`.
 
 ## Usuarios de prueba
 
-Creados por `Base de Datos/bd_mantenimiento_predictivo_v2.sql` con la clave inicial `Qla.2026!`
-(deben cambiarla al ingresar): `admin@demo.qla.cl`, `supervisor@demo.qla.cl`, `operador@demo.qla.cl`, `visor@demo.qla.cl`.
-**Se eliminan antes de la entrega final.**
+- En `MODO_DEMO=1`: existen `admin@demo.qla.cl` (`administrador`) y `operador@demo.qla.cl` (`operador`) con la contraseña definida en `DEMO_CLAVE`.
+- En base de datos real: los usuarios `@demo.qla.cl` se desactivan o eliminan antes de producción y se crea el administrador real con `Base de Datos/crear_admin.py`.
 
-## Pruebas realizadas (11-10-2026, PostgreSQL 16 local con el mismo esquema)
+## Pruebas automatizadas
 
-Web (navegador automatizado, escritorio y celular):
-- Login con clave incorrecta y correcta; primer ingreso con cambio de contraseña y validación de que coincidan.
-- Operador: no ve Usuarios ni el formulario de mantenimiento; reconoce una alarma desde el diálogo.
-- Supervisor: registra un mantenimiento. Visualizador: no ve el botón para reconocer alarmas.
-- Cerrar sesión vuelve al login. Sin errores de JavaScript.
+La suite de pruebas unitarias y de rutas vive en [`tests/`](tests) y se ejecuta en CI (`.github/workflows/ci.yml`) o localmente:
 
-API:
-
-- Login correcto, clave incorrecta, correo inexistente, usuario inactivo, token alterado y token expirado.
-- Cambio de contraseña obligatorio, validación de clave débil y de clave actual incorrecta.
-- Permisos: visualizador no reconoce alarmas (403), operador sí; operador no registra mantenimientos (403), supervisor sí; solo el administrador gestiona usuarios.
-- Bloqueo al quinto intento fallido y desbloqueo por el administrador.
-- Correo duplicado (409), rol inválido (422), administrador no puede desactivarse a sí mismo.
-- Tiempos con 400 mil lecturas: últimas lecturas 47 ms, resumen 12 ms, serie de 4 sensores en 24 h 48 ms.
-- Base detenida: responde 503 y se recupera sola al volver.
+```bash
+pip install -r requirements-dev.txt
+ruff check app tests && pytest --cov=app
+```

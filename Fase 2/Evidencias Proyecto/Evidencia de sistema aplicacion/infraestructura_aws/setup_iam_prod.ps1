@@ -11,7 +11,7 @@ param(
     [string]$AccountId,
 
     [Parameter(Mandatory=$false)]
-    [string]$Region = "us-east-1",
+    [string]$Region = "us-east-2",
 
     [Parameter(Mandatory=$false)]
     [string]$BucketName = "backup-planta-asfalto-molino-ml",
@@ -105,6 +105,11 @@ $LambdaPolicyJson = @"
         "dynamodb:Query"
       ],
       "Resource": "arn:aws:dynamodb:${Region}:${AccountId}:table/${DynamoTable}"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iot:DescribeEndpoint",
+      "Resource": "*"
     },
     {
       "Effect": "Allow",

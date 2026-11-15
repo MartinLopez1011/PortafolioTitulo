@@ -2,9 +2,11 @@ import io
 import json
 import logging
 import os
+import threading
 import time
 from decimal import Decimal
 import boto3
+from botocore.exceptions import ClientError
 import pandas as pd
 
 # Configuración de logger
@@ -32,31 +34,48 @@ def get_engine():
 # Pre-cargar modelos en el scope global durante el arranque del contenedor
 get_engine()
 
+AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-2"
+
 # Cliente DynamoDB
 DYNAMODB_TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "QLA_Molino_Telemetria")
-dynamodb = boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 table = dynamodb.Table(DYNAMODB_TABLE_NAME)
 
-# Cliente AWS IoT Core (Data-ATS)
-# AWS IoT Data requiere endpoint_url (ATS endpoint asignado a tu cuenta)
-IOT_ENDPOINT = os.environ.get("IOT_ENDPOINT", "https://a2ep4ljpgw7df7-ats.iot.us-east-1.amazonaws.com")
-if not IOT_ENDPOINT.startswith("https://"):
+# Cliente AWS IoT Core (Data-ATS) - inicialización perezosa si IOT_ENDPOINT no viene definido
+IOT_ENDPOINT = os.environ.get("IOT_ENDPOINT", "").strip()
+if IOT_ENDPOINT and not IOT_ENDPOINT.startswith("https://"):
     IOT_ENDPOINT = f"https://{IOT_ENDPOINT}"
 
-iot_client = boto3.client(
-    "iot-data",
-    region_name=os.environ.get("AWS_REGION", "us-east-1"),
-    endpoint_url=IOT_ENDPOINT
+iot_client = (
+    boto3.client("iot-data", region_name=AWS_REGION, endpoint_url=IOT_ENDPOINT)
+    if IOT_ENDPOINT
+    else None
 )
+
+
+def _get_iot_client():
+    global iot_client, IOT_ENDPOINT
+    if iot_client is not None:
+        return iot_client
+    from botocore.config import Config
+    cfg = Config(connect_timeout=2, read_timeout=2, retries={"max_attempts": 1})
+    iot_ctrl = boto3.client("iot", region_name=AWS_REGION, config=cfg)
+    ep = iot_ctrl.describe_endpoint(endpointType="iot:Data-ATS")["endpointAddress"]
+    IOT_ENDPOINT = ep if ep.startswith("https://") else f"https://{ep}"
+    iot_client = boto3.client("iot-data", region_name=AWS_REGION, endpoint_url=IOT_ENDPOINT, config=cfg)
+    return iot_client
+
 
 # Configuración y Cliente S3 (Ventana Activa y Bitácora para Modelo 3)
 BUCKET_NAME = os.environ.get("S3_BUCKET", "backup-planta-asfalto-molino-ml")
-S3_VENTANA_PATH = f"s3://{BUCKET_NAME}/ventana_activa/ultimas_168_horas.parquet"
+S3_VENTANA_KEY = os.environ.get("S3_VENTANA_KEY", "ventana_activa/ultimas_168_horas.parquet")
 S3_BITACORA_KEY = os.environ.get("S3_BITACORA_KEY", "bitacora/estado_equipos.json")
-s3_client = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+s3_client = boto3.client("s3", region_name=AWS_REGION)
 
 # Caché en memoria global (Warm Start) para evitar lecturas/escrituras S3 redundantes dentro del mismo minuto
+_VENTANA_LOCK = threading.Lock()
 _VENTANA_CACHE_DF = None
+_VENTANA_ETAG = None
 _ULTIMO_MIN_BUCKET_S3 = None
 _BITACORA_CACHE = {}
 _ULTIMA_LECTURA_BITACORA_TS = 0.0
@@ -78,29 +97,7 @@ def obtener_bitacora(equipo_id: str) -> dict:
         return _BITACORA_CACHE.get(equipo_id, {})
 
 
-def actualizar_ventana_168h(nueva_lectura: dict) -> pd.DataFrame:
-    """
-    Mantiene las últimas 168 horas consolidadas a resolución de 1 minuto.
-    Optimización FinOps/MLOps: Utiliza caché en memoria global durante el Warm Start y solo
-    persiste el Parquet en S3 cuando cambia el minuto (_min_bucket), reduciendo 30x los PUT/GET a S3.
-    """
-    global _VENTANA_CACHE_DF, _ULTIMO_MIN_BUCKET_S3
-    df_nuevo = pd.DataFrame([nueva_lectura])
-    key = "ventana_activa/ultimas_168_horas.parquet"
-
-    # 1. Cargar desde S3 únicamente en Cold Start (cuando _VENTANA_CACHE_DF es None)
-    if _VENTANA_CACHE_DF is None:
-        try:
-            obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
-            df_historico = pd.read_parquet(io.BytesIO(obj["Body"].read()))
-            df_completo = pd.concat([df_historico, df_nuevo], ignore_index=True)
-        except Exception as e:
-            logger.info(f"Iniciando nueva ventana activa en S3 ({e})")
-            df_completo = df_nuevo
-    else:
-        df_completo = pd.concat([_VENTANA_CACHE_DF, df_nuevo], ignore_index=True)
-
-    # 2. Normalizar timestamp epoch y consolidar duplicados dentro del mismo minuto
+def _podar_ventana(df_completo: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     try:
         ts_num = pd.to_numeric(df_completo["timestamp"], errors="coerce")
         if ts_num.isna().any():
@@ -121,19 +118,82 @@ def actualizar_ventana_168h(nueva_lectura: dict) -> pd.DataFrame:
         logger.warning(f"Fallback en poda de ventana 168h: {e_norm}")
         df_ventana = df_completo.tail(10080).reset_index(drop=True)
         min_bucket_actual = int(time.time()) // 60
+    return df_ventana, min_bucket_actual
 
-    _VENTANA_CACHE_DF = df_ventana
 
-    # 3. Persistir en S3 únicamente cuando avanza el minuto (1 PUT/min en lugar de 1 PUT cada 2s)
-    if _ULTIMO_MIN_BUCKET_S3 != min_bucket_actual:
-        try:
-            buffer = io.BytesIO()
-            df_ventana.to_parquet(buffer, index=False)
-            buffer.seek(0)
-            s3_client.put_object(Bucket=BUCKET_NAME, Key=key, Body=buffer.getvalue())
-            _ULTIMO_MIN_BUCKET_S3 = min_bucket_actual
-        except Exception as e_s3_put:
-            logger.warning(f"Advertencia al guardar ventana activa en S3: {e_s3_put}")
+def actualizar_ventana_168h(nueva_lectura: dict) -> pd.DataFrame:
+    """
+    Mantiene las últimas 168 horas consolidadas a resolución de 1 minuto.
+    Optimización FinOps/MLOps: Utiliza caché en memoria global durante el Warm Start y solo
+    persiste el Parquet en S3 cuando cambia el minuto (_min_bucket), reduciendo 30x los PUT/GET a S3.
+    """
+    global _VENTANA_CACHE_DF, _ULTIMO_MIN_BUCKET_S3, _VENTANA_ETAG
+    df_nuevo = pd.DataFrame([nueva_lectura])
+    key = S3_VENTANA_KEY
+
+    with _VENTANA_LOCK:
+        # 1. Cargar desde S3 únicamente en Cold Start (cuando _VENTANA_CACHE_DF es None)
+        if _VENTANA_CACHE_DF is None:
+            try:
+                obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
+                etag = obj.get("ETag")
+                _VENTANA_ETAG = etag if isinstance(etag, str) else None
+                df_historico = pd.read_parquet(io.BytesIO(obj["Body"].read()))
+                df_completo = pd.concat([df_historico, df_nuevo], ignore_index=True)
+            except Exception as e:
+                logger.info(f"Iniciando nueva ventana activa en S3 ({e})")
+                _VENTANA_ETAG = None
+                df_completo = df_nuevo
+        else:
+            df_completo = pd.concat([_VENTANA_CACHE_DF, df_nuevo], ignore_index=True)
+
+        # 2. Normalizar timestamp epoch y consolidar duplicados dentro del mismo minuto
+        df_ventana, min_bucket_actual = _podar_ventana(df_completo)
+        _VENTANA_CACHE_DF = df_ventana
+
+        # 3. Persistir en S3 únicamente cuando avanza el minuto (1 PUT/min en lugar de 1 PUT cada 2s)
+        if _ULTIMO_MIN_BUCKET_S3 != min_bucket_actual:
+            try:
+                buffer = io.BytesIO()
+                df_ventana.to_parquet(buffer, index=False)
+                put_kwargs = {"Bucket": BUCKET_NAME, "Key": key, "Body": buffer.getvalue()}
+                if isinstance(_VENTANA_ETAG, str):
+                    put_kwargs["IfMatch"] = _VENTANA_ETAG
+                resp = s3_client.put_object(**put_kwargs)
+                nuevo_etag = resp.get("ETag") if isinstance(resp, dict) else None
+                _VENTANA_ETAG = nuevo_etag if isinstance(nuevo_etag, str) else None
+                _ULTIMO_MIN_BUCKET_S3 = min_bucket_actual
+            except ClientError as e_s3_put:
+                err_code = e_s3_put.response.get("Error", {}).get("Code", "")
+                if err_code in ("PreconditionFailed", "412"):
+                    logger.warning("Ventana S3 modificada concurrentemente (PreconditionFailed); re-sincronizando...")
+                    try:
+                        obj_act = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
+                        etag_act = obj_act.get("ETag")
+                        _VENTANA_ETAG = etag_act if isinstance(etag_act, str) else None
+                        df_hist_act = pd.read_parquet(io.BytesIO(obj_act["Body"].read()))
+                        df_ventana, min_bucket_actual = _podar_ventana(
+                            pd.concat([df_hist_act, df_ventana], ignore_index=True)
+                        )
+                        _VENTANA_CACHE_DF = df_ventana
+                        buffer = io.BytesIO()
+                        df_ventana.to_parquet(buffer, index=False)
+                        retry_kwargs = {"Bucket": BUCKET_NAME, "Key": key, "Body": buffer.getvalue()}
+                        if isinstance(_VENTANA_ETAG, str):
+                            retry_kwargs["IfMatch"] = _VENTANA_ETAG
+                        resp_retry = s3_client.put_object(**retry_kwargs)
+                        etag_retry = resp_retry.get("ETag") if isinstance(resp_retry, dict) else None
+                        _VENTANA_ETAG = etag_retry if isinstance(etag_retry, str) else None
+                        _ULTIMO_MIN_BUCKET_S3 = min_bucket_actual
+                    except Exception as e_resync:
+                        logger.warning(f"No se pudo re-sincronizar ventana S3 ({e_resync}); limpiando caché")
+                        _VENTANA_CACHE_DF = None
+                        _VENTANA_ETAG = None
+                        _ULTIMO_MIN_BUCKET_S3 = None
+                else:
+                    logger.warning(f"Advertencia al guardar ventana activa en S3: {e_s3_put}")
+            except Exception as e_s3_put:
+                logger.warning(f"Advertencia al guardar ventana activa en S3: {e_s3_put}")
 
     return df_ventana
 
@@ -281,7 +341,7 @@ def lambda_handler(event, context):
                     falla_principal = alerta_top.get("falla", "Normal")
                     accion_principal = alerta_top.get("accion_recomendada")
                 elif ae.get("alerta_anomalia_nueva", False):
-                    falla_principal = "Desviacion_Multivariante_Autoencoder"
+                    falla_principal = "Anomalia_Desconocida"
                     accion_principal = "Inspeccionar sensores con mayor error cuadrático en vigilancia Autoencoder."
 
             payload_salida = {
@@ -302,7 +362,7 @@ def lambda_handler(event, context):
                 "tipo_asfalto": resultado_inferencia.get("tipo_asfalto", lectura_31.get("TIPO_asfalto", "Convencional")),
             }
 
-            iot_client.publish(
+            _get_iot_client().publish(
                 topic="planta/asfalto/molino/predicciones",
                 qos=1,
                 payload=json.dumps(payload_salida)

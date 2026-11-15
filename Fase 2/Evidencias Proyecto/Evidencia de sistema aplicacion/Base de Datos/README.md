@@ -21,15 +21,16 @@ Versión: 4.1 — basada en el esquema original de Franco Carvajal (v1/v2 en Sup
 | `migracion_v4.sql` | v4: normalización final (ver abajo). Una sola transacción |
 | `migracion_v4_1.sql` | v4.1: FK compuestas que aseguran que el equipo de un sensor o de una mantención coincida con el de su componente |
 | `ejecutar_sql.py` | Ejecuta un archivo .sql contra RDS usando el archivo de conexión local |
-| `crear_admin.py` | Crea el primer usuario administrador |
+| `crear_admin.py` | Crea o actualiza el usuario administrador real |
 | `cargar_datos.py` | Carga una ventana del dataset simulado MC-01 en `lecturas` y `estados_equipo` |
+| `verificar_bd.py` | Consulta en solo lectura el estado y conteo de filas de las 16 tablas |
 | `requirements.txt` | Dependencias de los scripts |
 
 **Base nueva (desde cero):** un solo archivo y luego el administrador:
 
 ```
-python ejecutar_sql.py bd_mantpred_v4_1_completo.sql --env "$HOME\qla_rds.env"
-python crear_admin.py --env "$HOME\qla_rds.env"
+python ejecutar_sql.py bd_mantpred_v4_1_completo.sql --env "$HOME/qla_rds.env"
+python crear_admin.py --env "$HOME/qla_rds.env"
 ```
 
 Equivale a aplicar `v2` → `migracion_v3.sql` → `migracion_v4.sql` → `migracion_v4_1.sql` (verificado: mismas tablas, columnas, restricciones, índices, comentarios, RLS y datos). Falla sin cambiar nada si el esquema `mantpred` ya existe.
@@ -63,7 +64,7 @@ Equivale a aplicar `v2` → `migracion_v3.sql` → `migracion_v4.sql` → `migra
 
 ```
 cd "Base de Datos"
-python ejecutar_sql.py migracion_v4.sql --env "$HOME\qla_rds.env"
+python ejecutar_sql.py migracion_v4.sql --env "$HOME/qla_rds.env"
 ```
 
 El archivo de conexión vive fuera del repositorio. Si algo falla, la transacción se revierte completa.

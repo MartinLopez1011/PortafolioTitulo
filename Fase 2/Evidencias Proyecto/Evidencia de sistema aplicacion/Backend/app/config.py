@@ -45,7 +45,7 @@ ALIAS_EQUIPO = {"MOLINO_QLA_01": "MC-01"}
 ZONA_HORARIA = "America/Santiago"   # los "días" del dashboard son días de la planta
 # Simulador controlable (HU-17 a HU-19). En EC2 todo se obtiene del rol de la instancia.
 SIM_PUBLICAR = os.environ.get("SIM_PUBLICAR", "iot").strip().lower()   # iot | local
-AWS_REGION = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+AWS_REGION = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
 IOT_ENDPOINT = os.environ.get("IOT_ENDPOINT", "")      # vacío: se consulta a AWS
 SIM_BUCKET = os.environ.get("SIM_BUCKET", "")          # vacío: el de la Lambda de inferencia
 SIM_DATASET = os.environ.get("SIM_DATASET", "")        # vacío: carpeta del repo o S3

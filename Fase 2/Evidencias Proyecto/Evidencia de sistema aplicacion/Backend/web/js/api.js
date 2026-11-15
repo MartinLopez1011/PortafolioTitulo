@@ -55,17 +55,6 @@ async function api(ruta, { metodo = "GET", cuerpo = null, params = null } = {}) 
   return datos;
 }
 
-/* Formatos en hora de Chile */
-const ZONA = "America/Santiago";
-const fmtFechaHora = new Intl.DateTimeFormat("es-CL", { timeZone: ZONA, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
-const fmtHora = new Intl.DateTimeFormat("es-CL", { timeZone: ZONA, hour: "2-digit", minute: "2-digit" });
-const fmtDiaHora = new Intl.DateTimeFormat("es-CL", { timeZone: ZONA, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
-function fechaHora(iso) { return iso ? fmtFechaHora.format(new Date(iso)) : "—"; }
-function numero(v, dec = 2) {
-  if (v === null || v === undefined) return "—";
-  return Number(v).toLocaleString("es-CL", { maximumFractionDigits: dec });
-}
-
 /* Construye elementos sin usar innerHTML (evita inyección de código desde los datos). */
 function el(etiqueta, atributos = {}, ...hijos) {
   const e = document.createElement(etiqueta);

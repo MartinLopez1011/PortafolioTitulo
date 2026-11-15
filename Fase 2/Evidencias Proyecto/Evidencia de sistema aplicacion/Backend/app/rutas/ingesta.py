@@ -3,12 +3,12 @@
 * POST /api/ingesta/registro: recibe el resultado de la Lambda de inferencia (el mismo registro
   que guarda en DynamoDB) y lo persiste en la base. Exige la clave X-Clave-Ingesta.
 * POST /api/telemetria: telemetría cruda del simulador o del Edge Gateway, solo para difundirla
-  en vivo a los navegadores (no se guarda). Exige la clave, salvo desde el mismo servidor (127.0.0.1).
+  en vivo a los navegadores (no se guarda). Exige la clave X-Clave-Ingesta.
 * WS /api/ws/telemetria?token=...: canal en vivo hacia el dashboard. Exige una sesión válida.
 """
 import datetime as dt
 
-from fastapi import APIRouter, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -21,10 +21,8 @@ router = APIRouter(tags=["Ingesta y tiempo real"])
 _clientes_ws: set[WebSocket] = set()
 
 
-def _exigir_clave(clave: str | None, request: Request | None = None, permitir_local: bool = False) -> None:
+def _exigir_clave(clave: str | None) -> None:
     if clave_ingesta_valida(clave):
-        return
-    if permitir_local and request is not None and request.client and request.client.host in ("127.0.0.1", "::1"):
         return
     raise HTTPException(401, "Clave de ingesta inválida o ausente (encabezado X-Clave-Ingesta)")
 
@@ -36,8 +34,7 @@ class Lote(BaseModel):
 
 
 @router.post("/ingesta/registro", summary="Guardar resultados de la Lambda de inferencia (servicio)")
-async def ingesta_registro(cuerpo: dict, request: Request,
-                           x_clave_ingesta: str | None = Header(default=None)):
+async def ingesta_registro(cuerpo: dict, x_clave_ingesta: str | None = Header(default=None)):
     """Acepta un registro suelto o {"registros": [...], "fuente": "simulado"|"real"}."""
     _exigir_clave(x_clave_ingesta)
     if config.MODO_DEMO:
@@ -67,8 +64,8 @@ def _guardar_lote(lote: "Lote") -> list[dict]:
 
 
 @router.post("/telemetria", summary="Telemetría en vivo (solo difusión, no se guarda)")
-async def telemetria(datos: dict, request: Request, x_clave_ingesta: str | None = Header(default=None)):
-    _exigir_clave(x_clave_ingesta, request, permitir_local=True)
+async def telemetria(datos: dict, x_clave_ingesta: str | None = Header(default=None)):
+    _exigir_clave(x_clave_ingesta)
     lectura = datos.get("lectura_actual") or datos
     await difundir({"topic": "planta/asfalto/molino/telemetria",
                     "timestamp": datos.get("timestamp", int(dt.datetime.now(dt.timezone.utc).timestamp())),

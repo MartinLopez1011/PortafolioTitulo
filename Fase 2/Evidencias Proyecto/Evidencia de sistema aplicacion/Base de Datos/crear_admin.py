@@ -2,7 +2,7 @@
 
 Ejecutar ANTES de publicar el servidor: la clave de los usuarios de prueba está en el repositorio.
 
-    python crear_admin.py --env C:\\Users\\nicol\\qla_rds.env
+    python crear_admin.py --env ~/qla_rds.env
 
 Pide nombre, correo y clave por teclado (la clave no se muestra ni se guarda en ningún archivo).
 """

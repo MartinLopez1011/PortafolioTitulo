@@ -24,6 +24,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       lambda: ${{ steps.filter.outputs.lambda }}
+      infra: ${{ steps.filter.outputs.infra }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -36,6 +37,20 @@ jobs:
             lambda:
               - 'Fase 2/Evidencias Proyecto/Evidencia de sistema aplicacion/lambda_inferencia/**'
               - '.github/workflows/**'
+            infra:
+              - 'Fase 2/Evidencias Proyecto/Evidencia de sistema aplicacion/infraestructura_aws/**'
+              - '.github/workflows/**'
+
+  shellcheck:
+    name: shellcheck (infraestructura)
+    needs: changes
+    if: needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint scripts bash (shellcheck)
+        run: |
+          find "$APP_DIR/infraestructura_aws" -name '*.sh' -print0 | xargs -0 shellcheck -S warning
 
   backend:
     name: backend
@@ -95,20 +110,20 @@ jobs:
           platforms: linux/amd64
           provenance: false
           load: true
-          tags: qla-inferencia:ci
+          tags: qla-molino-inferencia:ci
           cache-from: type=gha,scope=lambda
           cache-to: type=gha,mode=max,scope=lambda
       - name: Tests unitarios (dentro de la imagen)
         run: |
           docker run --rm --entrypoint /bin/sh \
             -v "$PWD/$APP_DIR/lambda_inferencia/tests:/var/task/tests:ro" \
-            -e AWS_REGION=us-east-1 -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
-            qla-inferencia:ci -c "pip install -q pytest && cd /var/task && python -m pytest tests -q -p no:cacheprovider"
+            -e AWS_REGION=us-east-2 -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
+            qla-molino-inferencia:ci -c "pip install -q pytest && cd /var/task && python -m pytest tests -q -p no:cacheprovider"
       - name: Smoke test con Runtime Interface Emulator
         run: |
           docker run -d --name rie -p 9000:8080 \
-            -e AWS_REGION=us-east-1 -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
-            -e AWS_EC2_METADATA_DISABLED=true qla-inferencia:ci
+            -e AWS_REGION=us-east-2 -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
+            -e AWS_EC2_METADATA_DISABLED=true qla-molino-inferencia:ci
           sleep 5
           RESP=$(curl -sS --max-time 120 -XPOST http://localhost:9000/2015-03-31/functions/function/invocations \
             --data-binary "@$APP_DIR/lambda_inferencia/app/test_payload_flat.json")
