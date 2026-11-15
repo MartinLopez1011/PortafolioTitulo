@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .. import config
+from ..catalogos import EQUIPOS
 from ..db import cursor
 from ..seguridad import OPERADOR, requiere_nivel
 
@@ -26,35 +27,10 @@ ORDEN_PRIORIDAD = {"alta": 0, "media": 1, "baja": 2}
 FALLAS_FRECUENTES = ("Sobrecarga_Motor_Por_Asfalto_Frio", "Filtro_Obstruido", "Advertencia_Radar_Sucio_Betun")
 HORIZONTES = ("24h", "5d", "15d")
 
-# Punto de mantención de cada modo de falla. 'clave' es el nombre que usa el modelo predictivo en la
-# bitácora (estado_equipos.json) y 'equipo' el texto que se muestra. Las intervenciones de cada uno se
-# obtienen de mantenimiento_fallas (correctivas, preventivas y predictivas que atendieron esa falla).
-EQUIPOS = [
-    {"clave": "filtro", "equipo": "F-101 filtro de línea", "componente": "F-101", "falla": "Filtro_Obstruido"},
-    {"clave": "radar", "equipo": "TK-101 radar de nivel", "componente": "TK-101", "falla": "Advertencia_Radar_Sucio_Betun"},
-    {"clave": "caldera", "equipo": "TK-101 caldera / calefactor de betún", "componente": "TK-101", "falla": "Sobrecarga_Motor_Por_Asfalto_Frio"},
-    {"clave": "intercambiador", "equipo": "E-301 intercambiador de calor", "componente": "E-301", "falla": "Ensuciamiento_Intercambiador"},
-    {"clave": "caudalimetro", "equipo": "FT-201 caudalímetro solución", "componente": "FT-201", "falla": "Cortocircuito_Transmisor_Caudal_Sol"},
-    {"clave": "pt100", "equipo": "TT-101 Pt100 betún", "componente": "TT-101", "falla": "Falla_Electrica_PT100_Betun"},
-    {"clave": "rodamientos", "equipo": "MC-01 rodamientos del molino", "componente": "MC-01", "falla": "Desgaste_Rodamientos_Molino"},
-]
-SQL_INTERVENCIONES = """
-               FROM mantpred.mantenimientos m
-               JOIN mantpred.mantenimiento_fallas mf ON mf.mantenimiento_id = m.id
-               JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
-               WHERE m.equipo_id = %s AND m.fuente = %s
-                 AND (m.fecha_inicio <= %s OR m.origen_registro = 'dashboard')
-                 AND tf.codigo = %s"""
-
 # Indicadores del día (mismos supuestos que el dashboard simulado de Franco)
 CAUDAL_20MA = {"betun": 200.0, "solucion": 120.0}     # L/min a 20 mA de cada Coriolis
 RELACION_OBJETIVO = (60.0, 68.0)
 VOLTAJE_MOTOR_V, FACTOR_POTENCIA = 380.0, 0.85
-
-
-def _sin_demo():
-    if config.MODO_DEMO:
-        raise HTTPException(409, "Esta pantalla necesita la base de datos (no disponible en modo demostración)")
 
 
 def _equipo(cur, codigo: str) -> int:
@@ -108,7 +84,7 @@ def proceso(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado"
                JOIN mantpred.lecturas l ON l.sensor_id = s.id AND l.fuente = %s AND l.ts = m.ts
                LEFT JOIN mantpred.rangos_operacion r
                       ON r.sensor_id = s.id AND r.estado = %s AND r.tipo_asfalto = %s
-               WHERE s.equipo_id = %s AND s.activo AND s.origen = 'simulado'
+               WHERE s.equipo_id = %s AND s.activo
                ORDER BY c.codigo, s.tag""",
             (fuente, ts, fuente, estado, tipo, eq))
         sensores = cur.fetchall()
@@ -267,11 +243,19 @@ def _prediccion_actual(cur, eq, fuente, ts) -> list:
 
 def _ultima_intervencion(cur, eq, fuente, ts) -> dict:
     """Fecha de la última intervención (correctiva o preventiva) de cada equipo, según la bitácora."""
-    res = {}
-    for e in EQUIPOS:
-        cur.execute("SELECT max(m.fecha_inicio) AS ultima" + SQL_INTERVENCIONES, (eq, fuente, ts, e["falla"]))
-        res[e["falla"]] = cur.fetchone()["ultima"]
-    return res
+    codigos = [e["falla"] for e in EQUIPOS]
+    cur.execute(
+        """SELECT tf.codigo, max(m.fecha_inicio) AS ultima
+           FROM mantpred.mantenimientos m
+           JOIN mantpred.mantenimiento_fallas mf ON mf.mantenimiento_id = m.id
+           JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
+           WHERE m.equipo_id = %s AND m.fuente = %s
+             AND (m.fecha_inicio <= %s OR m.origen_registro = 'dashboard')
+             AND tf.codigo = ANY(%s)
+           GROUP BY tf.codigo""",
+        (eq, fuente, ts, codigos),
+    )
+    return {f["codigo"]: f["ultima"] for f in cur.fetchall()}
 
 
 @router.get("/prediccion", summary="Pantalla Predicción: semáforo de riesgo por falla y horizonte")
@@ -332,17 +316,19 @@ def prediccion_evolucion(horizonte: Literal["24h", "5d", "15d"] = "5d", dias: in
 # =====================================================================
 def _alarmas(cur, eq, fuente, activas: bool, limite: int, ts) -> list:
     cur.execute(
-        f"""SELECT a.id, a.inicio, a.fin, a.mensaje, a.severidad, a.origen, a.valor, a.detalle,
-                   tf.codigo AS falla, cf.codigo AS componente_falla,
-                   coalesce(tf.accion, r.accion) AS accion, r.codigo AS regla, cr.codigo AS componente_regla
-            FROM mantpred.alarmas a
-            LEFT JOIN mantpred.tipos_falla tf ON tf.id = a.tipo_falla_id
-            LEFT JOIN mantpred.componentes cf ON cf.id = tf.componente_id
-            LEFT JOIN mantpred.reglas_alarma r ON r.id = a.regla_id
-            LEFT JOIN mantpred.sensores sr ON sr.id = r.sensor_id
-            LEFT JOIN mantpred.componentes cr ON cr.id = sr.componente_id
-            WHERE a.equipo_id = %s AND a.fuente = %s AND a.inicio <= %s {"AND a.fin IS NULL" if activas else ""}
-            ORDER BY a.inicio DESC LIMIT %s""", (eq, fuente, ts, limite))
+        """SELECT a.id, a.inicio, a.fin, a.mensaje, a.severidad, a.origen, a.valor, a.detalle,
+                  tf.codigo AS falla, cf.codigo AS componente_falla,
+                  coalesce(tf.accion, r.accion) AS accion, r.codigo AS regla, cr.codigo AS componente_regla
+           FROM mantpred.alarmas a
+           LEFT JOIN mantpred.tipos_falla tf ON tf.id = a.tipo_falla_id
+           LEFT JOIN mantpred.componentes cf ON cf.id = tf.componente_id
+           LEFT JOIN mantpred.reglas_alarma r ON r.id = a.regla_id
+           LEFT JOIN mantpred.sensores sr ON sr.id = r.sensor_id
+           LEFT JOIN mantpred.componentes cr ON cr.id = sr.componente_id
+           WHERE a.equipo_id = %s AND a.fuente = %s AND a.inicio <= %s AND (NOT %s OR a.fin IS NULL)
+           ORDER BY a.inicio DESC LIMIT %s""",
+        (eq, fuente, ts, activas, limite),
+    )
     res = []
     for a in cur.fetchall():
         fin = a["fin"]
@@ -429,11 +415,24 @@ def mantenimiento_pantalla(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuen
         ahora = _ahora(cur, eq, fuente)
         ts = ahora["ts"] if ahora else dt.datetime.now(dt.timezone.utc)
         riesgo15 = {f["falla"]: f["horizontes"].get("15d", {}) for f in _prediccion_actual(cur, eq, fuente, ts)}
+        codigos = [e["falla"] for e in EQUIPOS]
+        cur.execute(
+            """SELECT tf.codigo AS falla, m.fecha_inicio, m.tipo
+               FROM mantpred.mantenimientos m
+               JOIN mantpred.mantenimiento_fallas mf ON mf.mantenimiento_id = m.id
+               JOIN mantpred.tipos_falla tf ON tf.id = mf.tipo_falla_id
+               WHERE m.equipo_id = %s AND m.fuente = %s
+                 AND (m.fecha_inicio <= %s OR m.origen_registro = 'dashboard')
+                 AND tf.codigo = ANY(%s)
+               ORDER BY tf.codigo, m.fecha_inicio""",
+            (eq, fuente, ts, codigos),
+        )
+        por_falla: dict[str, list] = {}
+        for reg in cur.fetchall():
+            por_falla.setdefault(reg["falla"], []).append(reg)
         filas = []
         for e in EQUIPOS:
-            cur.execute("SELECT m.fecha_inicio, m.tipo" + SQL_INTERVENCIONES + " ORDER BY m.fecha_inicio",
-                        (eq, fuente, ts, e["falla"]))
-            regs = cur.fetchall()
+            regs = por_falla.get(e["falla"], [])
             corr = [r["fecha_inicio"] for r in regs if r["tipo"] == "correctivo"]
             difs = [(b - a).total_seconds() / 86400 for a, b in zip(corr, corr[1:])]
             ultima = regs[-1]["fecha_inicio"] if regs else None

@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from .. import config
+from ..catalogos import EQUIPOS as PUNTOS_EQUIPO
 from ..db import cursor
-from ..iot_ws import AWS_REGION, IOT_ENDPOINT, generar_iot_websocket_url
 from ..seguridad import OPERADOR, auditar, ip_cliente, requiere_nivel
 
 router = APIRouter(tags=["Planta y dashboard"])
@@ -37,8 +37,7 @@ def _equipo_id(cur, codigo: str) -> int:
 # ---------------------------------------------------------------- catálogos
 @router.get("/equipos", summary="Equipos monitoreados")
 def equipos(u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.EQUIPOS
     with cursor() as cur:
@@ -48,8 +47,7 @@ def equipos(u: dict = Depends(lector)):
 
 @router.get("/sensores", summary="Catálogo de sensores")
 def sensores(equipo: str = config.EQUIPO_POR_DEFECTO, origen: Fuente | None = None, u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         if origen:
             return [s for s in demo_store.SENSORES if s.get("origen") == origen]
@@ -67,8 +65,7 @@ def sensores(equipo: str = config.EQUIPO_POR_DEFECTO, origen: Fuente | None = No
 
 @router.get("/tipos-falla", summary="Catálogo de fallas que reconoce el modelo")
 def tipos_falla(u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.TIPOS_FALLA
     with cursor() as cur:
@@ -82,8 +79,7 @@ def tipos_falla(u: dict = Depends(lector)):
 @router.get("/lecturas/ultimas", summary="Último valor de cada sensor (tarjetas en tiempo real)")
 def lecturas_ultimas(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                      u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.obtener_lecturas_demo()
     with cursor() as cur:
@@ -106,8 +102,7 @@ def lecturas_serie(
         paso: Literal["1min", "5min", "15min", "1h", "1d"] = "15min",
         fuente: Fuente = "simulado",
         u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         import math as _m
         from .. import demo_store
         lista = [t.strip() for t in tags.split(",") if t.strip()]
@@ -179,8 +174,7 @@ def lecturas_serie(
 # ---------------------------------------------------------------- estado del equipo
 @router.get("/estado/actual", summary="Estado de operación más reciente")
 def estado_actual(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         return {"ts": dt.datetime.now(dt.timezone.utc).isoformat(), "estado": "produccion", "tipo_asfalto": "convencional"}
     with cursor() as cur:
         eq = _equipo_id(cur, equipo)
@@ -194,8 +188,7 @@ def estado_actual(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "sim
 def estado_historial(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                      desde: dt.datetime | None = None, hasta: dt.datetime | None = None,
                      u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.obtener_historial_estado_demo()
     with cursor() as cur:
@@ -224,8 +217,7 @@ def estado_historial(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "
 
 @router.get("/resumen", summary="Indicadores para el encabezado del dashboard")
 def resumen(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado", u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         r = demo_store.obtener_resumen_demo()
         r["equipo"] = {"codigo": "MC-01", "nombre": "Molino coloidal HP 240"}
@@ -263,8 +255,7 @@ class Reconocimiento(BaseModel):
 @router.get("/alarmas", summary="Alarmas activas o recientes")
 def alarmas(activas: bool = True, limite: int = Query(100, ge=1, le=500), fuente: Fuente = "simulado",
             u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         return []
     with cursor() as cur:
         cur.execute(
@@ -285,8 +276,7 @@ def alarmas(activas: bool = True, limite: int = Query(100, ge=1, le=500), fuente
 @router.post("/alarmas/{alarma_id}/reconocer", summary="Reconocer una alarma (operador o superior)")
 def reconocer(alarma_id: int, datos: Reconocimiento, request: Request,
               u: dict = Depends(requiere_nivel(OPERADOR))):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         return {"mensaje": "Alarma reconocida (modo demostración)"}
     with cursor() as cur:
         cur.execute(
@@ -306,8 +296,7 @@ def reconocer(alarma_id: int, datos: Reconocimiento, request: Request,
 @router.get("/predicciones/ultimas", summary="Última predicción de cada modelo y horizonte")
 def predicciones_ultimas(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente = "simulado",
                          u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.obtener_predicciones_demo()
     with cursor() as cur:
@@ -352,8 +341,7 @@ def _normalizar_fecha_planta(fecha: dt.datetime | None) -> dt.datetime | None:
 @router.get("/mantenimientos", summary="Historial de mantenimientos")
 def mantenimientos(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente | None = None,
                    limite: int = Query(100, ge=1, le=500), u: dict = Depends(lector)):
-    from .. import db
-    if db.MODO_DEMO or config.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         return demo_store.obtener_mantenimiento_demo()["bitacora"][:limite]
     with cursor() as cur:
@@ -375,9 +363,6 @@ def mantenimientos(equipo: str = config.EQUIPO_POR_DEFECTO, fuente: Fuente | Non
 @router.post("/mantenimientos", status_code=201, summary="Registrar un mantenimiento (operador o administrador)")
 def crear_mantenimiento(datos: MantenimientoNuevo, request: Request, equipo: str = config.EQUIPO_POR_DEFECTO,
                         u: dict = Depends(requiere_nivel(OPERADOR))):
-    from .. import db
-    from .pantallas import EQUIPOS as PUNTOS_EQUIPO
-
     f_inicio = _normalizar_fecha_planta(datos.fecha_inicio)
     f_fin = _normalizar_fecha_planta(datos.fecha_fin)
     if f_fin and f_fin < f_inicio:
@@ -415,7 +400,7 @@ def crear_mantenimiento(datos: MantenimientoNuevo, request: Request, equipo: str
     fallas = sorted(set(fallas_lista))
     descripcion = (datos.descripcion or "").strip() or None
 
-    if db.MODO_DEMO or config.MODO_DEMO:
+    if config.MODO_DEMO:
         from .. import demo_store
         codigos_validos = {f["codigo"] for f in demo_store.TIPOS_FALLA}
         faltan_demo = set(fallas) - codigos_validos
@@ -474,19 +459,3 @@ def crear_mantenimiento(datos: MantenimientoNuevo, request: Request, equipo: str
             pass
 
     return {"id": nuevo, "mensaje": "Mantenimiento registrado"}
-
-
-@router.get("/iot/ws-url", summary="URL pre-firmada WebSocket para conexión MQTT en tiempo real")
-def iot_ws_url(u: dict = Depends(lector)):
-    """Genera una URL pre-firmada SigV4 para conectar al broker AWS IoT Core via WebSockets."""
-    url = generar_iot_websocket_url()
-    return {
-        "disponible": bool(url),
-        "url": url,
-        "endpoint": IOT_ENDPOINT,
-        "region": AWS_REGION,
-        "topics": {
-            "telemetria": "planta/asfalto/molino/telemetria",
-            "predicciones": "planta/asfalto/molino/predicciones",
-        },
-    }

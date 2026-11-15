@@ -3,7 +3,7 @@
 # 1. Rol + Instance Profile (qla-ec2-profile) con acceso a ECR, SSM, S3, DynamoDB e IoT
 # 2. Security Group (qla-web-sg) con puerto 80 abierto
 # 3. Instancia EC2 (qla-servidor) en estado running con /opt/qla/Backend/.env
-# 4. IP Elástica y API Gateway HTTPS (qla-dashboard) apuntando a la EC2
+# 4. API Gateway HTTPS (qla-dashboard) apuntando a la IP pública de la EC2
 set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-2}"
@@ -16,17 +16,53 @@ TIPO_INSTANCIA="${EC2_INSTANCE_TYPE:-t3.small}"
 
 log() { echo "[provision] $*" >&2; }
 
-# 1. Rol e Instance Profile para la EC2
+# 1. Rol e Instance Profile para la EC2 (mínimo privilegio)
 if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
   log "Creando rol IAM $ROLE_NAME para la EC2..."
   aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document '{
     "Version":"2012-10-17",
     "Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]
   }' >/dev/null
-  for pol in AmazonSSMManagedInstanceCore AmazonEC2ContainerRegistryReadOnly AmazonS3FullAccess AmazonDynamoDBFullAccess AWSIoTDataAccess AWSLambda_ReadOnlyAccess; do
-    aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn "arn:aws:iam::aws:policy/$pol" || true
+  for pol in AmazonSSMManagedInstanceCore AmazonEC2ContainerRegistryReadOnly; do
+    aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn "arn:aws:iam::aws:policy/$pol"
   done
 fi
+
+aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name qla-ec2-app-policy --policy-document '{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::qla-*",
+        "arn:aws:s3:::qla-*/*",
+        "arn:aws:s3:::backup-planta-asfalto-molino-ml*",
+        "arn:aws:s3:::backup-planta-asfalto-molino-ml*/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["dynamodb:BatchGetItem", "dynamodb:GetItem", "dynamodb:Query"],
+      "Resource": "arn:aws:dynamodb:*:*:table/QLA_Molino_Telemetria"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:UpdateFunctionConfiguration"],
+      "Resource": "arn:aws:lambda:*:*:function:qla-molino-inferencia"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iot:DescribeEndpoint",
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iot:Publish",
+      "Resource": "arn:aws:iot:*:*:topic/planta/asfalto/molino/*"
+    }
+  ]
+}' >/dev/null
 
 if ! aws iam get-instance-profile --instance-profile-name "$PROFILE_NAME" >/dev/null 2>&1; then
   log "Creando Instance Profile $PROFILE_NAME..."
@@ -52,27 +88,13 @@ if [ -z "$IID" ] || [ "$IID" = "None" ]; then
   fi
 
   AMI_ID=$(aws ssm get-parameters --region "$REGION" --names /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 --query "Parameters[0].Value" --output text)
-  JWT_SEC="${JWT_SECRET_ENV:-$(openssl rand -hex 32)}"
-  INGESTA_SEC="${CLAVE_INGESTA_ENV:-$(openssl rand -hex 24)}"
-  DB_URL="${DATABASE_URL_ENV:-}"
-  DEMO_MODE="1"
-  [ -n "$DB_URL" ] && DEMO_MODE="0"
 
-  cat > /tmp/ud.sh <<USERDATA
+  cat > /tmp/ud.sh <<'USERDATA'
 #!/bin/bash
 set -euo pipefail
 dnf install -y docker
 systemctl enable --now docker
 mkdir -p /opt/qla/Backend
-cat > /opt/qla/Backend/.env <<'ENVEOF'
-MODO_DEMO=${DEMO_MODE}
-DEMO_CLAVE=ClaveDemo2026
-DATABASE_URL=${DB_URL}
-JWT_SECRET=${JWT_SEC}
-CLAVE_INGESTA=${INGESTA_SEC}
-AWS_DEFAULT_REGION=${REGION}
-ENVEOF
-chmod 600 /opt/qla/Backend/.env
 USERDATA
 
   IID=$(aws ec2 run-instances --region "$REGION" \
@@ -102,16 +124,81 @@ else
 fi
 
 # Esperar a que SSM Agent esté Online
+PING=""
 for _ in $(seq 1 30); do
   PING=$(aws ssm describe-instance-information --region "$REGION" \
     --filters "Key=InstanceIds,Values=$IID" --query "InstanceInformationList[0].PingStatus" --output text 2>/dev/null || true)
   [ "$PING" = "Online" ] && break
   sleep 5
 done
+if [ "$PING" != "Online" ]; then
+  log "ERROR: SSM Agent de $IID no alcanzó estado Online (estado: ${PING:-desconocido})"
+  exit 1
+fi
 
-# Asegurar que /opt/qla/Backend/.env exista en la instancia
-aws ssm send-command --region "$REGION" --instance-ids "$IID" --document-name AWS-RunShellScript \
-  --parameters 'commands=["mkdir -p /opt/qla/Backend && [ -f /opt/qla/Backend/.env ] || printf \"MODO_DEMO=1\nDEMO_CLAVE=ClaveDemo2026\nJWT_SECRET=$(openssl rand -hex 32)\nCLAVE_INGESTA=$(openssl rand -hex 24)\nAWS_DEFAULT_REGION='"$REGION"'\n\" > /opt/qla/Backend/.env"]' >/dev/null
+# Configurar /opt/qla/Backend/.env en la instancia vía SSM (sin exponer secretos en user-data)
+DB_B64=$(printf '%s' "${DATABASE_URL_ENV:-}" | base64 | tr -d '\n')
+JWT_B64=$(printf '%s' "${JWT_SECRET_ENV:-}" | base64 | tr -d '\n')
+INGESTA_B64=$(printf '%s' "${CLAVE_INGESTA_ENV:-}" | base64 | tr -d '\n')
+ENV_SCRIPT_B64=$(cat <<'REMOTE_EOF' | base64 | tr -d '\n'
+#!/bin/bash
+set -euo pipefail
+DB_URL=$(printf '%s' "${1:-}" | base64 -d)
+JWT_SEC=$(printf '%s' "${2:-}" | base64 -d)
+INGESTA_SEC=$(printf '%s' "${3:-}" | base64 -d)
+REGION="${4:-us-east-2}"
+ENV_FILE=/opt/qla/Backend/.env
+mkdir -p /opt/qla/Backend
+touch "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+
+set_kv() {
+  local k="$1" v="$2" tmp
+  tmp=$(mktemp)
+  QLA_VAL="$v" awk -v k="$k" '
+    BEGIN { v=ENVIRON["QLA_VAL"]; found=0 }
+    index($0, k "=") == 1 { print k "=" v; found=1; next }
+    { print }
+    END { if (!found) print k "=" v }
+  ' "$ENV_FILE" > "$tmp"
+  mv "$tmp" "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+}
+
+if [ -n "$DB_URL" ]; then
+  set_kv "DATABASE_URL" "$DB_URL"
+  set_kv "MODO_DEMO" "0"
+elif ! grep -q '^MODO_DEMO=' "$ENV_FILE"; then
+  set_kv "MODO_DEMO" "1"
+fi
+grep -q '^DEMO_CLAVE=' "$ENV_FILE" || set_kv "DEMO_CLAVE" "ClaveDemo2026"
+if [ -n "$JWT_SEC" ]; then
+  set_kv "JWT_SECRET" "$JWT_SEC"
+elif ! grep -q '^JWT_SECRET=' "$ENV_FILE"; then
+  set_kv "JWT_SECRET" "$(openssl rand -hex 32)"
+fi
+if [ -n "$INGESTA_SEC" ]; then
+  set_kv "CLAVE_INGESTA" "$INGESTA_SEC"
+elif ! grep -q '^CLAVE_INGESTA=' "$ENV_FILE"; then
+  set_kv "CLAVE_INGESTA" "$(openssl rand -hex 24)"
+fi
+set_kv "AWS_DEFAULT_REGION" "$REGION"
+set_kv "AWS_REGION" "$REGION"
+rm -f /tmp/qla_env.sh
+REMOTE_EOF
+)
+PARAMS=$(jq -nc --arg s "$ENV_SCRIPT_B64" --arg db "$DB_B64" --arg jwt "$JWT_B64" --arg ing "$INGESTA_B64" --arg reg "$REGION" \
+  '{commands: ["echo \($s) | base64 -d > /tmp/qla_env.sh", "bash /tmp/qla_env.sh \"\($db)\" \"\($jwt)\" \"\($ing)\" \"\($reg)\""]}')
+CMD_ID=$(aws ssm send-command --region "$REGION" --instance-ids "$IID" --document-name AWS-RunShellScript \
+  --comment "configure backend env" --timeout-seconds 120 \
+  --parameters "$PARAMS" --query "Command.CommandId" --output text)
+aws ssm wait command-executed --region "$REGION" --command-id "$CMD_ID" --instance-id "$IID" >/dev/null 2>&1 || true
+CMD_STATUS=$(aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" --instance-id "$IID" --query "Status" --output text)
+if [ "$CMD_STATUS" != "Success" ]; then
+  log "ERROR configurando /opt/qla/Backend/.env vía SSM (estado: $CMD_STATUS)"
+  aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" --instance-id "$IID" --query "StandardErrorContent" --output text >&2 || true
+  exit 1
+fi
 
 # Obtener IP pública actual y configurar API Gateway HTTPS apuntando a esa IP
 PUBLIC_IP=$(aws ec2 describe-instances --region "$REGION" --instance-ids "$IID" --query "Reservations[0].Instances[0].PublicIpAddress" --output text)

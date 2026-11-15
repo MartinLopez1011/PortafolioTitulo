@@ -1,7 +1,7 @@
 # Arquitectura Dual (AWS Academy Learner Lab vs. AWS Comercial) y Estimación en AWS Pricing Calculator
 
 > **Proyecto:** Sistema Híbrido de Telemetría y Mantenimiento Predictivo Industrial — *Química Latinoamericana S.A. (Molino Coloidal MC-01)*  
-> **Región de Referencia:** `us-east-1` (US East - N. Virginia)
+> **Región de Referencia:** `us-east-2` (US East - Ohio)
 
 ---
 
@@ -14,10 +14,10 @@ El sistema fue diseñado para ser **100% agnóstico al tipo de cuenta AWS**, per
 | Componente / Capa | Modo 1: `lab` (AWS Academy Learner Lab) | Modo 2: `prod` (AWS Comercial / Producción) |
 | :--- | :--- | :--- |
 | **Gobernanza IAM** | Bloqueo por SCP de `iam:CreateRole` y `iam:CreatePolicy`. | Creación de roles dedicados bajo principio de **Mínimo Privilegio (Least-Privilege)**. |
-| **Rol de AWS Lambda (`qla-molino-inferencia`)** | `arn:aws:iam::<ACC_ID>:role/LabRole` | `arn:aws:iam::<ACC_ID>:role/QLA_Lambda_Inference_Role` (`dynamodb`, `s3`, `iot:Publish`, `logs`). |
+| **Rol de AWS Lambda (`qla-molino-inferencia`)** | `arn:aws:iam::<ACC_ID>:role/LabRole` | `arn:aws:iam::<ACC_ID>:role/QLA_Lambda_Inference_Role` (`dynamodb`, `s3`, `iot:DescribeEndpoint`, `iot:Publish`, `logs`). |
 | **Rol de Amazon Data Firehose** | `arn:aws:iam::<ACC_ID>:role/LabRole` | `arn:aws:iam::<ACC_ID>:role/QLA_Firehose_Delivery_Role` (`s3`, `glue:GetTableVersions`, `logs`). |
 | **Rol de AWS IoT Topic Rule** | `arn:aws:iam::<ACC_ID>:role/LabRole` | `arn:aws:iam::<ACC_ID>:role/QLA_IoT_Rule_Role` (`firehose:PutRecord`). |
-| **Firma WebSocket MQTT (`iot_ws.py`)** | Pre-signed URL SigV4 con credenciales temporales STS (`X-Amz-Security-Token` anexado post-firma). | Pre-signed URL SigV4 compatible tanto con Roles IAM STS (`con token`) como con IAM Users (`sin token`). |
+| **Canal en Tiempo Real (`Hot Path` / WebSocket)** | WebSocket del Backend (`WS /api/ws/telemetria`) + publicación en AWS IoT Core usando credenciales de instancia (`LabInstanceProfile`). | WebSocket del Backend (`WS /api/ws/telemetria`) + publicación en AWS IoT Core con rol dedicado (`qla-ec2-role` / `qla-ec2-app-policy`). |
 | **Resolución de `IOT_ENDPOINT` y `<ACC_ID>`** | Dinámica en tiempo de ejecución vía `sts:GetCallerIdentity` e `iot:DescribeEndpoint(iot:Data-ATS)`. | Dinámica en tiempo de ejecución vía `sts:GetCallerIdentity` e `iot:DescribeEndpoint(iot:Data-ATS)`. |
 | **Bucket S3 Data Lake** | `backup-planta-asfalto-molino-ml` (o con sufijo `-<ACC_ID>` automático si ya existe globalmente). | Configurable vía `-BucketName` o variable `$env:S3_BUCKET`. |
 
@@ -44,7 +44,7 @@ Ejecuta automáticamente `setup_iam_prod.ps1`, crea los 3 roles IAM de mínimo p
 
 ## 3. Guía Paso a Paso para **AWS Pricing Calculator** (`https://calculator.aws/`)
 
-Para evaluar cuánto cuesta operar esta arquitectura en una cuenta AWS Comercial para **1 Molino Coloidal operando 24/7 (730 horas/mes = 43.800 minutos/mes)** en la región **`us-east-1` (N. Virginia)**, se modelan **dos escenarios operativos**:
+Para evaluar cuánto cuesta operar esta arquitectura en una cuenta AWS Comercial para **1 Molino Coloidal operando 24/7 (730 horas/mes = 43.800 minutos/mes)** en la región **`us-east-2` (US East - Ohio)**, se modelan **dos escenarios operativos**:
 
 1. **Escenario A (Tiempo Real Puro — Alta Frecuencia cada 2 segundos):**
    - El Edge Gateway publica 1 paquete JSON (`~1.2 KB`, 31 variables) cada **2 segundos** ($30\text{ msg/min} = 1.296.000\text{ msg/mes}$).
@@ -58,7 +58,7 @@ Para evaluar cuánto cuesta operar esta arquitectura en una cuenta AWS Comercial
 ### 3.1. Valores Exactos para Ingresar en `calculator.aws`
 
 #### Bloque 1: **AWS IoT Core**
-En el buscador de AWS Pricing Calculator, selecciona **AWS IoT Core** (`US East (N. Virginia)`):
+En el buscador de AWS Pricing Calculator, selecciona **AWS IoT Core** (`US East (Ohio)`):
 - **Connectivity (Conectividad):**
   - *Number of devices:* `1`
   - *Connection duration:* `43800` minutes/month (24/7)
@@ -88,7 +88,7 @@ Selecciona **AWS Lambda**:
 
 #### Bloque 3: **Amazon Elastic Container Registry (ECR)**
 Selecciona **Amazon ECR**:
-- **Amount of data stored in private repositories:** `2` GB per month (Imagen base Lambda Python 3.12 + dependencias científicas y artefactos `.pkl`/`.keras`).
+- **Amount of data stored in private repositories:** `2` GB per month (Imagen base Lambda Python 3.12 + dependencias científicas y artefactos `.joblib`/`.keras`).
 - **Subtotal Amazon ECR:** **$0.20 USD/mes** (`$0.10/GB-mes`).
 
 ---
@@ -118,7 +118,7 @@ Selecciona **Amazon Data Firehose**:
 
 #### Bloque 6: **Amazon Simple Storage Service (S3)** (Data Lake Parquet + Ventana 168h)
 Selecciona **Amazon S3** -> **S3 Standard**:
-- **S3 Standard Storage:** `5` GB per month (archivos Parquet comprimidos con Snappy + `ultimas_168_horas.parquet` + `estado_equipos.json`).
+- **S3 Standard Storage:** `5` GB per month (archivos Parquet comprimidos con Snappy + `ultimas_168_horas.parquet` + `bitacora/estado_equipos.json`).
 - **PUT, COPY, POST, LIST requests:**
   - *Sin caché de minuto en Lambda (cada 2s):* `1,300,000` PUTs/mes $\rightarrow$ **$6.50 USD/mes**.
   - *Con la optimización implementada en `lambda_function.py` (1 PUT/minuto + entregas Firehose):* `45,000` PUTs/mes $\rightarrow$ **$0.23 USD/mes**.

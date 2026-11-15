@@ -76,7 +76,7 @@ def usuario_actual(cred: HTTPAuthorizationCredentials | None = Depends(_bearer))
         u = next((x for x in demo_store.USUARIOS.values() if str(x["id"]) == datos.get("sub")), None)
         if u is None:
             raise _no_autorizado("Usuario no habilitado")
-        return u
+        return {k: v for k, v in u.items() if k != "password_hash"}
 
     with cursor() as cur:
         cur.execute(
@@ -125,12 +125,16 @@ def token_valido(token: str | None) -> dict | None:
 
 # ---------------------------------------------------------------- auditoría
 def ip_cliente(request: Request) -> str | None:
-    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
-        request.client.host if request.client else "")
-    try:
-        return str(ipaddress.ip_address(ip))
-    except ValueError:
-        return None
+    xff = request.headers.get("x-forwarded-for", "")
+    candidatos = [p.strip() for p in reversed(xff.split(",")) if p.strip()]
+    if request.client and request.client.host:
+        candidatos.append(request.client.host)
+    for ip in candidatos:
+        try:
+            return str(ipaddress.ip_address(ip))
+        except ValueError:
+            continue
+    return None
 
 
 def auditar(cur, usuario_id: int | None, email: str | None, ip: str | None, accion: str,

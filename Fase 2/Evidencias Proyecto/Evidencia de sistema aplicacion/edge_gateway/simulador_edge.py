@@ -8,8 +8,16 @@ import pandas as pd
 import requests
 from pydantic import BaseModel
 
-LAMBDA_URL = os.environ.get("LAMBDA_URL", "https://pczeontvrrhrvqjlaluqdvrokm0ysgdo.lambda-url.us-east-1.on.aws/")
+LAMBDA_URL = os.environ.get("LAMBDA_URL", "").strip()
 DB_BUFFER_PATH = Path(__file__).resolve().parent / "edge_store_and_forward.db"
+
+
+def _exigir_lambda_url() -> str:
+    if not LAMBDA_URL:
+        raise RuntimeError(
+            "Falta la variable de entorno LAMBDA_URL (ej: https://<id>.lambda-url.us-east-2.on.aws/)."
+        )
+    return LAMBDA_URL
 
 
 class Lectura31Molino(BaseModel):
@@ -116,11 +124,12 @@ def construir_payload_canonico(datos_crudos: dict, equipo_id: str = "MOLINO_QLA_
 
 
 def _enviar_http(payload: dict) -> bool:
-    resp = requests.post(LAMBDA_URL, json=payload, timeout=15)
+    resp = requests.post(_exigir_lambda_url(), json=payload, timeout=15)
     return resp.status_code == 200
 
 
 def iniciar_simulacion(ruta_csv: str, intervalo_seg: int = 3, max_envios: int = 20):
+    url = _exigir_lambda_url()
     print(f"Cargando datos de planta desde: {ruta_csv}")
     cola = ColaStoreAndForward()
     df = pd.read_csv(ruta_csv)
@@ -133,18 +142,21 @@ def iniciar_simulacion(ruta_csv: str, intervalo_seg: int = 3, max_envios: int = 
         try:
             cola.drenar(_enviar_http)
             inicio = time.time()
-            resp = requests.post(LAMBDA_URL, json=payload, timeout=15)
+            resp = requests.post(url, json=payload, timeout=15)
             latencia = round((time.time() - inicio) * 1000, 1)
 
             if resp.status_code == 200:
-                data = resp.json()["resultado"]
-                diag = data["diagnostico"]["falla"]
-                mse = data["vigilancia_autoencoder"]["mse"]
-                alerta_ae = data["vigilancia_autoencoder"]["alerta_anomalia_nueva"]
-                print(
-                    f"[OK {latencia}ms] Estado: {data['estado_operacion']} "
-                    f"| Diagnóstico: {diag} | MSE AE: {mse} (Alerta: {alerta_ae})"
-                )
+                try:
+                    data = resp.json()["resultado"]
+                    diag = data["diagnostico"]["falla"]
+                    mse = data["vigilancia_autoencoder"]["mse"]
+                    alerta_ae = data["vigilancia_autoencoder"]["alerta_anomalia_nueva"]
+                    print(
+                        f"[OK {latencia}ms] Estado: {data['estado_operacion']} "
+                        f"| Diagnóstico: {diag} | MSE AE: {mse} (Alerta: {alerta_ae})"
+                    )
+                except (ValueError, KeyError, TypeError) as e_json:
+                    print(f"[OK {latencia}ms] Respuesta inesperada ({e_json})")
             else:
                 print(f"[ERROR {resp.status_code}] Encolando en SQLite Store-and-Forward...")
                 cola.encolar(payload)
@@ -156,6 +168,7 @@ def iniciar_simulacion(ruta_csv: str, intervalo_seg: int = 3, max_envios: int = 
 
 
 if __name__ == "__main__":
+    url_lambda = _exigir_lambda_url()
     cola_local = ColaStoreAndForward()
     ruta_test = Path(__file__).resolve().parent.parent / "lambda_inferencia" / "app" / "test_payload.json"
     with open(ruta_test, "r", encoding="utf-8") as f:
@@ -166,8 +179,16 @@ if __name__ == "__main__":
         paquete = construir_payload_canonico(muestra, ts=int(time.time()))
         try:
             cola_local.drenar(_enviar_http)
-            r = requests.post(LAMBDA_URL, json=paquete, timeout=15)
-            print(f"Envío #{i+1} -> Status {r.status_code} | Diagnóstico: {r.json()['resultado']['diagnostico']['falla']}")
+            r = requests.post(url_lambda, json=paquete, timeout=15)
+            if r.status_code == 200:
+                try:
+                    falla = r.json()["resultado"]["diagnostico"]["falla"]
+                except (ValueError, KeyError, TypeError):
+                    falla = "sin detalle JSON"
+                print(f"Envío #{i+1} -> Status {r.status_code} | Diagnóstico: {falla}")
+            else:
+                print(f"Envío #{i+1} -> Error HTTP {r.status_code} | Encolado en Store-and-Forward.")
+                cola_local.encolar(paquete)
         except Exception as exc:
             print(f"Envío #{i+1} sin red ({exc}) -> Encolado en Store-and-Forward.")
             cola_local.encolar(paquete)

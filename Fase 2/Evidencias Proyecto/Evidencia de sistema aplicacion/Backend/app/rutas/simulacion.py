@@ -18,11 +18,6 @@ class Control(BaseModel):
     valor: str | None = None
 
 
-def _sin_demo():
-    if config.MODO_DEMO:
-        raise HTTPException(409, "El simulador necesita la base de datos (no disponible en modo demostración)")
-
-
 @router.get("", summary="Estado del simulador")
 def estado(u: dict = Depends(lector)):
     if config.MODO_DEMO:

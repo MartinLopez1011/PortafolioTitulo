@@ -5,7 +5,7 @@ con validación Pydantic de las 31 variables canónicas y cola local SQLite WAL 
 Alimenta simultáneamente:
   1. Cold Path: Firehose -> S3 Parquet -> Athena (campos planos en raíz compatibles con glue_table.json)
   2. ML Path: IoT Rule -> Lambda Inferencia -> DynamoDB y alertas
-  3. Hot Path: AWS IoT Core WebSockets -> Dashboard Frontend en vivo
+  3. Hot Path: Backend POST /api/telemetria -> WebSocket /api/ws/telemetria -> Dashboard en vivo
 """
 import argparse
 import datetime
@@ -18,7 +18,7 @@ import time
 import boto3
 from pydantic import BaseModel
 
-REGION = os.environ.get("AWS_REGION", "us-east-1")
+REGION = os.environ.get("AWS_REGION", "us-east-2")
 
 
 def _resolver_iot_endpoint() -> str:
@@ -28,8 +28,10 @@ def _resolver_iot_endpoint() -> str:
     try:
         addr = boto3.client("iot", region_name=REGION).describe_endpoint(endpointType="iot:Data-ATS")["endpointAddress"]
         return f"https://{addr}"
-    except Exception:
-        return "https://a2ep4ljpgw7df7-ats.iot.us-east-1.amazonaws.com"
+    except Exception as exc:
+        raise RuntimeError(
+            "No se pudo resolver IOT_ENDPOINT mediante iot:describe_endpoint y la variable IOT_ENDPOINT no está definida."
+        ) from exc
 
 
 IOT_ENDPOINT = _resolver_iot_endpoint()
@@ -257,20 +259,33 @@ def main():
                 req_local = urllib.request.Request(
                     "http://127.0.0.1:8000/api/telemetria",
                     data=json.dumps(payload).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Clave-Ingesta": os.environ.get("CLAVE_INGESTA", ""),
+                    },
                 )
                 urllib.request.urlopen(req_local, timeout=1)
             except Exception:
                 pass
 
-            l = payload["lectura_actual"]
+            lectura = payload["lectura_actual"]
             hora = datetime.datetime.now().strftime("%H:%M:%S")
-            alerta = " [!] ALERTA ANOMALIA" if (l["TEM_son_betum_in"] < 130 or l["AMP_vfd_motor_molino"] > 120 or l["PRE_dif_filtro_bar"] > 1.0 or l["VIB_vel_motor_molino"] > 4.0 or l["EST_niv_betum_dep"] >= 1.0) else ""
+            alerta = (
+                " [!] ALERTA ANOMALIA"
+                if (
+                    lectura["TEM_son_betum_in"] < 130
+                    or lectura["AMP_vfd_motor_molino"] > 120
+                    or lectura["PRE_dif_filtro_bar"] > 1.0
+                    or lectura["VIB_vel_motor_molino"] > 4.0
+                    or lectura["EST_niv_betum_dep"] >= 1.0
+                )
+                else ""
+            )
 
             print(
-                f"[{hora}] #{enviados:03d} ({args.modo}) -> Betun: {l['TEM_son_betum_in']:5.1f}C "
-                f"| Motor: {l['AMP_vfd_motor_molino']:5.1f}A | Vib: {l['VIB_vel_motor_molino']:4.2f} mm/s "
-                f"| dP Filtro: {l['PRE_dif_filtro_bar']:4.2f} bar{alerta}"
+                f"[{hora}] #{enviados:03d} ({args.modo}) -> Betun: {lectura['TEM_son_betum_in']:5.1f}C "
+                f"| Motor: {lectura['AMP_vfd_motor_molino']:5.1f}A | Vib: {lectura['VIB_vel_motor_molino']:4.2f} mm/s "
+                f"| dP Filtro: {lectura['PRE_dif_filtro_bar']:4.2f} bar{alerta}"
             )
 
             if args.cantidad > 0 and enviados >= args.cantidad:

@@ -16,7 +16,7 @@ if sys.stdout.encoding != 'utf-8':
     except Exception:
         pass
 
-REGION = os.environ.get("AWS_REGION", "us-east-1")
+REGION = os.environ.get("AWS_REGION", "us-east-2")
 BUCKET = os.environ.get("S3_BUCKET", "backup-planta-asfalto-molino-ml")
 DYNAMO_TABLE = os.environ.get("DYNAMODB_TABLE", "QLA_Molino_Telemetria")
 GLUE_DB = "qla_planta_asfalto"
@@ -29,8 +29,10 @@ def _resolver_iot_endpoint(session_obj) -> str:
         return ep
     try:
         return session_obj.client("iot").describe_endpoint(endpointType="iot:Data-ATS")["endpointAddress"]
-    except Exception:
-        return "a2ep4ljpgw7df7-ats.iot.us-east-1.amazonaws.com"
+    except Exception as exc:
+        raise RuntimeError(
+            "No se pudo resolver IOT_ENDPOINT mediante iot:describe_endpoint y la variable IOT_ENDPOINT no está definida."
+        ) from exc
 
 
 def _resolver_bucket(session_obj, base_bucket: str) -> str:
@@ -140,16 +142,19 @@ else:
     print(f"      Total items en DynamoDB: {scan.get('Count')}")
 
 # 3. Verificar Ruta 3 (Hot Path)
-print(f"\n[3/4] 🌐 VERIFICANDO RUTA 3 (HOT PATH - WEBSOCKET & BROKER MQTT)...")
-from test_iot_ws_signer import get_iot_websocket_url
-url_ws = get_iot_websocket_url(region=REGION, endpoint=IOT_ENDPOINT)
-if url_ws and url_ws.startswith("wss://"):
-    print(f"      ✅ URL WebSocket SigV4 generada correctamente!")
-    print(f"         Endpoint: {IOT_ENDPOINT}")
-    print(f"         Suscripciones activas: '{TOPIC_TELEMETRIA}' y '{TOPIC_PREDICCIONES}'")
-    print(f"         Frontend Dashboard: Badge 'En vivo (MQTT)' operativo.")
+print("\n[3/4] 🌐 VERIFICANDO RUTA 3 (HOT PATH - IOT CORE & WEBSOCKET BACKEND)...")
+try:
+    ep_actual = session.client("iot").describe_endpoint(endpointType="iot:Data-ATS")["endpointAddress"]
+except Exception as e_iot:
+    ep_actual = IOT_ENDPOINT
+    print(f"      ⚠️ describe_endpoint no disponible ({e_iot}); usando IOT_ENDPOINT={IOT_ENDPOINT}")
+if ep_actual and ".iot." in ep_actual:
+    print("      ✅ Endpoint MQTT ATS operativo para difusión en tiempo real!")
+    print(f"         Endpoint ATS : {ep_actual}")
+    print(f"         Topics MQTT  : '{TOPIC_TELEMETRIA}' y '{TOPIC_PREDICCIONES}'")
+    print("         Hot Path Web : Backend POST /api/telemetria -> WS /api/ws/telemetria")
 else:
-    print("      ❌ No se pudo generar la URL WebSocket pre-firmada.")
+    print(f"      ⚠️ Endpoint IoT inesperado: {ep_actual}")
 
 # 4. Verificar Ruta 1 (Cold Path)
 print(f"\n[4/4] 🧊 VERIFICANDO RUTA 1 (COLD PATH - FIREHOSE, S3 & ATHENA)...")

@@ -23,10 +23,10 @@ Navegador ──HTTPS──> API Gateway ──HTTP──> EC2 qla-servidor  <�
 
 ## Antes de empezar (una sola vez)
 
-1. Inicia el lab (**Start Lab**, punto verde) y copia las credenciales de **AWS Details** al Bloc de notas en `C:\Users\nicol\.aws\credentials`. No las pegues en PowerShell ni en el chat.
+1. Inicia el lab (**Start Lab**, punto verde) y copia las credenciales de **AWS Details** en `$HOME\.aws\credentials` (o `~/.aws/credentials`). No las pegues en PowerShell ni en el chat.
 2. Abre PowerShell en `infraestructura_aws` y activa el entorno:
    ```powershell
-   cd "C:\Users\nicol\Documents\PortafolioTitulo\Fase 2\Evidencias Proyecto\Evidencia de sistema aplicacion\infraestructura_aws"
+   cd "<ruta-al-repositorio>\Fase 2\Evidencias Proyecto\Evidencia de sistema aplicacion\infraestructura_aws"
    .\.venv\Scripts\Activate.ps1
    aws sts get-caller-identity
    ```
@@ -45,14 +45,14 @@ powershell -ExecutionPolicy Bypass -File .\desplegar_dashboard_aws.ps1
 Tarda unos 6 a 8 minutos (la primera vez el servidor instala Python y las librerías). Al final muestra:
 
 ```
- Dashboard (HTTPS): https://xxxxxxxx.execute-api.us-east-1.amazonaws.com
+ Dashboard (HTTPS): https://xxxxxxxx.execute-api.us-east-2.amazonaws.com
  Dashboard (HTTP, con tiempo real): http://3.x.x.x
 ```
 
 * Por HTTPS el dashboard se actualiza de forma periódica (API Gateway HTTP no transmite WebSocket).
 * Por HTTP, con la IP, también funciona el canal en vivo.
 
-El script guarda `JWT_SECRET` y `CLAVE_INGESTA` en `C:\Users\nicol\qla_servidor.env`, fuera del repositorio. No lo subas a Git ni lo compartas.
+El script guarda `JWT_SECRET` y `CLAVE_INGESTA` en `$HOME\qla_servidor.env`, fuera del repositorio. No lo subas a Git ni lo compartas.
 
 ## Probar el flujo completo con el simulador del dashboard
 

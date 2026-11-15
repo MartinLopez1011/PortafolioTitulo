@@ -307,7 +307,6 @@ main { padding: 16px 24px 36px; display: flex; flex-direction: column; gap: 16px
 .medidores {
   display: flex;
   flex-direction: column;
-  divide-y: 1px solid var(--borde);
 }
 .metrica-item {
   display: flex;
@@ -356,7 +355,7 @@ main { padding: 16px 24px 36px; display: flex; flex-direction: column; gap: 16px
   font-size: 11px;
   color: var(--texto-3);
 }
-.metrica- pista, .metrica-barra {
+.metrica-pista, .metrica-barra {
   position: relative;
   height: 4px;
   width: 100%;

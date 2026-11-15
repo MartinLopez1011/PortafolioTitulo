@@ -193,6 +193,23 @@ class MolinoInferenceEngine:
 
         return estado_op, tipo_asf
 
+    @staticmethod
+    def _as_flag(val, default: int = 0) -> int:
+        if val is None or isinstance(val, bool):
+            return int(val) if isinstance(val, bool) else default
+        try:
+            f = float(val)
+            if np.isnan(f) or np.isinf(f):
+                return default
+            return 1 if int(f) != 0 else 0
+        except (ValueError, TypeError):
+            s = str(val).strip().lower()
+            if s in ("true", "si", "sí", "1"):
+                return 1
+            if s in ("false", "no", "0", ""):
+                return 0
+            return default
+
     def Normalizar_Entrada_31(self, payload_minuto: dict) -> dict:
         """
         Garantiza que cualquier lectura entrante (plana o anidada en 'lectura_actual'/'lecturas')
@@ -209,21 +226,17 @@ class MolinoInferenceEngine:
         raw_estado = datos.get("ESTADO_operacion") or datos.get("estado_operacion")
         raw_tipo = datos.get("TIPO_asfalto") or datos.get("tipo_asfalto")
 
-        es_plasto = int(
-            datos.get(
-                "es_plastomerico",
-                1 if str(raw_tipo or "Convencional").strip().lower().startswith("plasto") else 0,
-            )
+        es_plasto = self._as_flag(
+            datos.get("es_plastomerico"),
+            1 if str(raw_tipo or "Convencional").strip().lower().startswith("plasto") else 0,
         )
-        en_limp = int(
-            datos.get(
-                "en_limpieza",
-                1 if str(raw_estado or "Produccion").strip().lower() == "limpieza" else 0,
-            )
+        en_limp = self._as_flag(
+            datos.get("en_limpieza"),
+            1 if str(raw_estado or "Produccion").strip().lower() == "limpieza" else 0,
         )
 
         estado_op, tipo_asf = self._normalizar_estado_y_tipo(raw_estado, raw_tipo, en_limp, es_plasto)
-        es_plasto = 1 if tipo_asf == "Plastomerico" else int(bool(es_plasto))
+        es_plasto = 1 if tipo_asf == "Plastomerico" else (0 if raw_tipo is not None else int(bool(es_plasto)))
         en_limp = 1 if estado_op == "Limpieza" else 0
 
         limpio = {
@@ -256,8 +269,8 @@ class MolinoInferenceEngine:
         if estado not in ESTADOS_ACTIVOS:
             return {"monitoreo_activo": False, "estado_operacion": estado}
 
-        X_31 = pd.DataFrame([registro_31])[self.features_31].astype("float32")
-        X_ae_31 = pd.DataFrame([registro_31])[self.features_ae_31].astype("float32")
+        X_31 = self._preparar_31_features(registro_31)
+        X_ae_31 = X_31 if self.features_ae_31 == self.features_31 else pd.DataFrame([registro_31])[self.features_ae_31].astype("float32")
 
         # Modelo 2: Vigilancia (Autoencoder recibe las 31 variables escaladas)
         X_vig = self.scaler_vig.transform(X_ae_31).astype("float32")
@@ -444,7 +457,7 @@ class MolinoInferenceEngine:
         Total = 80 variables en el orden exacto de self.features_80.
         """
         H = self._resumen_horario_11_variables(df_ventana_31)
-        t_pred = (H.index.max() if len(H) else pd.Timestamp.utcnow().tz_localize(None)).floor("h") + pd.Timedelta(hours=1)
+        t_pred = (H.index.max() if len(H) else pd.Timestamp.now("UTC").tz_localize(None)).floor("h") + pd.Timedelta(hours=1)
 
         base_cols = [c for c in H.columns if c not in ("min_produccion", "min_plastomerico", "litros")]
         H_clean = H.copy()
@@ -554,7 +567,7 @@ class MolinoInferenceEngine:
         if all(col in payload_entrada for col in self.features_80):
             X_80 = pd.DataFrame([payload_entrada])[self.features_80].astype("float32")
             H_vacio = pd.DataFrame()
-            t_pred = pd.Timestamp.utcnow().tz_localize(None)
+            t_pred = pd.Timestamp.now("UTC").tz_localize(None)
             return self._evaluar_modelos_80(X_80, H_vacio, t_pred)
 
         # Caso general: viene un registro con las 31 variables de entrada

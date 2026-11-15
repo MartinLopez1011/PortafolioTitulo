@@ -3,14 +3,14 @@
 # Imagen DOCKER para subir a ECR (Arquitectura Dual: Learner Lab vs AWS Normal)
 # Versión nativa para Linux (Bash)
 # ==============================================================================
-set -uo pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR" || exit 1
 
 MODE="${1:-${DEPLOY_MODE:-lab}}"
 LAMBDA_ROLE_ARN="${2:-}"
-AWS_REGION="${3:-${AWS_REGION:-us-east-1}}"
+AWS_REGION="${3:-${AWS_REGION:-us-east-2}}"
 BUCKET_NAME="${4:-${S3_BUCKET:-backup-planta-asfalto-molino-ml}}"
 DYNAMO_TABLE="${5:-${DYNAMODB_TABLE:-QLA_Molino_Telemetria}}"
 IOT_ENDPOINT="${6:-}"

@@ -122,7 +122,7 @@
     }
   });
   $("btn-salir").addEventListener("click", () => { Sesion.cerrar(); location.replace("/login.html?motivo=salida"); });
-  if (esAdmin && $("tab-usuarios")) $("tab-usuarios").hidden = false;
+  if (esAdmin && $("tab-btn-usuarios")) $("tab-btn-usuarios").hidden = false;
 
   function pintarCabecera(est) {
     if (!est || !est.ts) return;

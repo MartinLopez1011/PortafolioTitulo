@@ -7,13 +7,13 @@
 #   ./desplegar_infraestructura_aws.sh prod   # Cuenta AWS Comercial / Normal (crea roles IAM Least-Privilege)
 #   ./desplegar_infraestructura_aws.sh lab    # AWS Academy Learner Lab (usa LabRole)
 # ==============================================================================
-set -u
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR" || exit 1
 
 MODE="${1:-${DEPLOY_MODE:-prod}}"
-AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_REGION="${AWS_REGION:-us-east-2}"
 BUCKET_NAME="${S3_BUCKET:-backup-planta-asfalto-molino-ml}"
 REPO_NAME="qla-molino-inferencia"
 DYNAMO_TABLE="QLA_Molino_Telemetria"
@@ -27,7 +27,7 @@ echo -e "\033[1;33m   Modo de Arquitectura: ${MODE^^}\033[0m"
 echo -e "\033[1;36m==================================================================\033[0m"
 
 # 0. Verificar Identidad AWS y Obtener Account ID e IoT Endpoint Dinámico
-ACC_ID=$(aws sts get-caller-identity --query "Account" --output text 2>/dev/null | tr -d '[:space:]')
+ACC_ID=$(aws sts get-caller-identity --query "Account" --output text 2>/dev/null | tr -d '[:space:]' || true)
 if [[ -z "$ACC_ID" ]]; then
     echo -e "\033[1;31m❌ ERROR: No se detectaron credenciales válidas de AWS.\033[0m"
     echo -e "\033[1;33mAsegúrate de configurar tus credenciales en ~/.aws/credentials\033[0m"

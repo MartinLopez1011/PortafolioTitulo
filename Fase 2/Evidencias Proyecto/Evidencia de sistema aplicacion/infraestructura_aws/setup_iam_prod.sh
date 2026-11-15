@@ -3,10 +3,17 @@
 # Script de Provisionamiento de Roles IAM de Mínimo Privilegio (Modo AWS Normal / Prod)
 # Proyecto: Sistema Predictivo y Telemetría Molino Coloidal QLA
 # ==============================================================================
-set -u
+set -euo pipefail
 
 ACCOUNT_ID="${1:-}"
-REGION="${2:-us-east-1}"
+if [[ -z "$ACCOUNT_ID" ]]; then
+    ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text 2>/dev/null | tr -d '[:space:]' || true)
+fi
+if [[ -z "$ACCOUNT_ID" ]]; then
+    echo "ERROR: Falta ACCOUNT_ID (pásalo como primer argumento o configura credenciales AWS)." >&2
+    exit 1
+fi
+REGION="${2:-us-east-2}"
 BUCKET_NAME="${3:-backup-planta-asfalto-molino-ml}"
 DYNAMO_TABLE="${4:-QLA_Molino_Telemetria}"
 FIREHOSE_STREAM="${5:-stream-backup-planta-asfalto}"
@@ -84,6 +91,11 @@ cat > "${TMP_DIR}/policy_${LAMBDA_ROLE_NAME}.json" <<EOF
         "dynamodb:Query"
       ],
       "Resource": "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/${DYNAMO_TABLE}"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iot:DescribeEndpoint",
+      "Resource": "*"
     },
     {
       "Effect": "Allow",
