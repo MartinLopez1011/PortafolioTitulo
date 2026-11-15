@@ -75,9 +75,44 @@ Sensores / Simulador MC-01
 
 ---
 
-## Inicio Rápido (Modo Demo Local sin BD)
+## Guía Rápida de Uso
 
-Para levantar el backend y el dashboard localmente con datos en memoria:
+### 1. Descargar el proyecto
+
+```bash
+git clone https://github.com/MartinLopez1011/PortafolioTitulo.git
+cd PortafolioTitulo
+```
+
+### 2. Configurarlo
+
+**Opción A — Local con Python (recomendada para desarrollo):**
+
+```bash
+cd "Fase 2/Evidencias Proyecto/Evidencia de sistema aplicacion/Backend"
+python -m venv .venv
+source .venv/bin/activate   # En Windows PowerShell: .\.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+cp .env.example .env
+```
+
+Editar `.env` definiendo al menos `JWT_SECRET` (mínimo 32 caracteres) y:
+- **Modo demo (sin base de datos):** `MODO_DEMO=1` y `DEMO_CLAVE=ClaveDemo2026`.
+- **Modo conectado a PostgreSQL:** `DATABASE_URL` y `CLAVE_INGESTA`.
+
+**Opción B — Con Docker (sin instalar Python localmente):**
+
+No requiere `.env` previo en modo demo; las variables se pasan al ejecutar el contenedor.
+
+### 3. Ejecutarlo
+
+**Local con Python:**
+
+```bash
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Con Docker (modo demo):**
 
 ```bash
 cd "Fase 2/Evidencias Proyecto/Evidencia de sistema aplicacion/Backend"
@@ -88,7 +123,18 @@ docker run --rm -p 8000:8000 \
   qla-backend:local
 ```
 
-Luego abrir `http://127.0.0.1:8000` (credenciales demo: `admin@demo.qla.cl` / `ClaveDemo2026`).
+### 4. Probarlo
+
+1. **Verificar la API:**
+   ```bash
+   curl -fsS http://127.0.0.1:8000/api/salud
+   ```
+2. **Abrir el dashboard web:** ingresar a `http://127.0.0.1:8000` (en modo demo: usuario `admin@demo.qla.cl` / clave `ClaveDemo2026`).
+3. **Ejecutar pruebas unitarias y linter (en entorno Python):**
+   ```bash
+   ruff check app tests
+   pytest --cov=app
+   ```
 
 ---
 
